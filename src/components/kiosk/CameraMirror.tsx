@@ -9,6 +9,9 @@ import {
   Sparkles,
   CheckCircle2,
   SunMedium,
+  SwitchCamera,
+  Activity,
+  Eye,
 } from "lucide-react";
 
 export type CameraErrorCategory =
@@ -17,6 +20,7 @@ export type CameraErrorCategory =
   | "permission_denied"
   | "busy"
   | "low_light"
+  | "too_fast"
   | "unknown";
 
 export interface CameraErrorInfo {
@@ -26,36 +30,56 @@ export interface CameraErrorInfo {
   suggestion: string;
 }
 
+export type CameraFacingMode = "user" | "environment";
+
 interface CameraMirrorProps {
   className?: string;
   isScanning?: boolean;
   scanTitle?: string;
+  currentStep?: 1 | 2 | 3;
+  totalSteps?: number;
   showOverlayGrid?: boolean;
   mirrored?: boolean;
+  initialFacingMode?: CameraFacingMode;
   onCameraReady?: () => void;
   onCameraError?: (error: CameraErrorInfo) => void;
+  onRestartScan?: () => void;
+  onCancelScan?: () => void;
 }
 
 export function CameraMirror({
   className = "",
   isScanning = false,
   scanTitle = "กำลังจัดตำแหน่งใบหน้า...",
+  currentStep = 1,
+  totalSteps = 3,
   showOverlayGrid = true,
   mirrored = true,
+  initialFacingMode = "user",
   onCameraReady,
   onCameraError,
+  onRestartScan,
+  onCancelScan,
 }: CameraMirrorProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
   const [streamActive, setStreamActive] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [errorInfo, setErrorInfo] = useState<CameraErrorInfo | null>(null);
   const [forceSimulatedMode, setForceSimulatedMode] = useState(false);
-  const [isLowLightWarning, setIsLowLightWarning] = useState(false);
+  const [facingMode, setFacingMode] = useState<CameraFacingMode>(initialFacingMode);
 
+  // สภาวะเตือนชั่วคราว (Low-light & Motion blur)
+  const [isLowLightWarning, setIsLowLightWarning] = useState(false);
+  const [isTooFastWarning, setIsTooFastWarning] = useState(false);
+
+  // ฟังก์ชันหยุด Stream กล้องอย่างสะอาดเมื่อออกจากหน้าจอ หรือสลับกล้อง
   const stopActiveStream = useCallback(() => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((track) => {
+        track.stop();
+      });
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -63,134 +87,145 @@ export function CameraMirror({
     }
   }, []);
 
-  const requestCameraStream = useCallback(async () => {
-    stopActiveStream();
+  // ฟังก์ชันขอสิทธิ์และเปิดกล้องจากอุปกรณ์
+  const requestCameraStream = useCallback(
+    async (targetFacingMode: CameraFacingMode) => {
+      stopActiveStream();
 
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      const err: CameraErrorInfo = {
-        category: "not_found",
-        title: "เบราว์เซอร์ไม่รองรับกล้อง",
-        description: "เบราว์เซอร์นี้ไม่รองรับ MediaDevices API",
-        suggestion: "กรุณาเปิดบนเบราว์เซอร์สมัยใหม่ เช่น Google Chrome",
-      };
-      setErrorInfo(err);
-      setIsInitializing(false);
-      onCameraError?.(err);
-      return;
-    }
-
-    let stream: MediaStream | null = null;
-
-    // ขั้นที่ 1: ลองเปิดกล้องด้วยความละเอียด 1280x720 มุมกล้องหน้า
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
-    } catch (firstErr) {
-      // ขั้นที่ 2: ถ้าล้มเหลว (เช่น overconstrained หรือไม่รองรับ 720p) ลองโหมด video พื้นฐาน
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false,
-        });
-      } catch (secondErr) {
-        // จำแนกประเภท Error ให้ชัดเจนและให้คำแนะนำภาษาไทย
-        const rawErr = secondErr instanceof Error ? secondErr : firstErr;
-        const errName = rawErr instanceof Error ? rawErr.name : "";
-        const errMsg = rawErr instanceof Error ? rawErr.message : String(rawErr);
-
-        let classified: CameraErrorInfo;
-
-        if (
-          errName === "NotFoundError" ||
-          errName === "DevicesNotFoundError" ||
-          errMsg.toLowerCase().includes("not found")
-        ) {
-          classified = {
-            category: "not_found",
-            title: "ไม่พบอุปกรณ์กล้องบนเครื่องนี้",
-            description: "ระบบไม่พบกล้องเว็บแคมที่เชื่อมต่ออยู่ หรือกล้อง USB ถูกถอดออก",
-            suggestion: "กรุณาเสียบสายกล้อง หรือใช้โหมดจำลองภาพเพื่อทดสอบระบบ",
-          };
-        } else if (
-          errName === "NotAllowedError" ||
-          errName === "PermissionDeniedError" ||
-          errMsg.toLowerCase().includes("permission") ||
-          errMsg.toLowerCase().includes("denied")
-        ) {
-          classified = {
-            category: "permission_denied",
-            title: "กล้องถูกบล็อกการเข้าถึง",
-            description: "เบราว์เซอร์ยังไม่ได้รับอนุญาตให้เข้าถึงกล้อง",
-            suggestion: "กรุณากดไอคอนรูปกล้องหรือแม่กุญแจที่แถบ URL ด้านบน แล้วเลือก 'อนุญาต (Allow)'",
-          };
-        } else if (
-          errName === "NotReadableError" ||
-          errName === "TrackStartError" ||
-          errMsg.toLowerCase().includes("busy") ||
-          errMsg.toLowerCase().includes("in use")
-        ) {
-          classified = {
-            category: "busy",
-            title: "กล้องกำลังถูกใช้งานโดยโปรแกรมอื่น",
-            description: "กล้องเว็บแคมถูกโปรแกรมอื่น (เช่น Zoom, Meet, OBS หรือแท็บอื่น) ใช้งานอยู่",
-            suggestion: "กรุณาปิดโปรแกรมที่กำลังใช้กล้อง แล้วกดปุ่มลองใหม่อีกครั้ง",
-          };
-        } else {
-          classified = {
-            category: "unknown",
-            title: "ไม่สามารถเปิดกล้องได้",
-            description: errMsg || "เกิดข้อผิดพลาดในการเชื่อมต่ออุปกรณ์กล้อง",
-            suggestion: "กรุณากดปุ่มลองใหม่อีกครั้ง หรือสลับเป็นโหมดจำลอง",
-          };
-        }
-
-        setErrorInfo(classified);
-        setStreamActive(false);
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+        const err: CameraErrorInfo = {
+          category: "not_found",
+          title: "เบราว์เซอร์ไม่รองรับกล้อง",
+          description: "เบราว์เซอร์นี้ไม่รองรับ MediaDevices API สำหรับเปิดกล้อง",
+          suggestion: "กรุณาเปิดบนเบราว์เซอร์ Google Chrome หรือ Edge รุ่นล่าสุด",
+        };
+        setErrorInfo(err);
         setIsInitializing(false);
-        onCameraError?.(classified);
+        onCameraError?.(err);
         return;
       }
-    }
 
-    if (stream) {
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(() => {});
+      let stream: MediaStream | null = null;
+
+      // ขั้นที่ 1: ลองเปิดด้วยความละเอียดมาตรฐาน 1280x720 ตาม facingMode ที่เลือก
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: targetFacingMode,
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch (firstErr) {
+        // ขั้นที่ 2: หากล้มเหลว (เช่น constraint ไม่รองรับ) ให้ลองโหมด video พื้นฐาน
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        } catch (secondErr) {
+          const rawErr = secondErr instanceof Error ? secondErr : firstErr;
+          const errName = rawErr instanceof Error ? rawErr.name : "";
+          const errMsg = rawErr instanceof Error ? rawErr.message : String(rawErr);
+
+          let classified: CameraErrorInfo;
+
+          if (
+            errName === "NotFoundError" ||
+            errName === "DevicesNotFoundError" ||
+            errMsg.toLowerCase().includes("not found")
+          ) {
+            classified = {
+              category: "not_found",
+              title: "ไม่พบอุปกรณ์กล้องบนเครื่องนี้",
+              description: "ระบบไม่พบกล้องเว็บแคมที่เชื่อมต่ออยู่ หรือกล้อง USB ถูกถอดออก",
+              suggestion: "กรุณาตรวจสอบการเสียบสายกล้อง หรือเลือกใช้โหมดจำลองภาพเสมือน",
+            };
+          } else if (
+            errName === "NotAllowedError" ||
+            errName === "PermissionDeniedError" ||
+            errMsg.toLowerCase().includes("permission") ||
+            errMsg.toLowerCase().includes("denied")
+          ) {
+            classified = {
+              category: "permission_denied",
+              title: "กล้องถูกปฏิเสธการเข้าถึง",
+              description: "เบราว์เซอร์ไม่ได้รับอนุญาตให้ใช้งานกล้องบนอุปกรณ์นี้",
+              suggestion: "กรุณากดไอคอนแม่กุญแจที่แถบ URL ด้านบน แล้วเลือก 'อนุญาต (Allow)' แล้วลองใหม่",
+            };
+          } else if (
+            errName === "NotReadableError" ||
+            errName === "TrackStartError" ||
+            errMsg.toLowerCase().includes("busy") ||
+            errMsg.toLowerCase().includes("in use")
+          ) {
+            classified = {
+              category: "busy",
+              title: "กล้องถูกใช้งานโดยโปรแกรมอื่นอยู่แล้ว",
+              description: "มีโปรแกรมอื่นในเครื่อง (เช่น Zoom, Meet, OBS หรือแท็บอื่น) กำลังใช้งานกล้องอยู่",
+              suggestion: "กรุณาปิดโปรแกรมอื่นที่ใช้งานกล้อง แล้วกดปุ่มลองใหม่อีกครั้ง",
+            };
+          } else {
+            classified = {
+              category: "unknown",
+              title: "ไม่สามารถเปิดกล้องได้",
+              description: errMsg || "เกิดข้อผิดพลาดในการเชื่อมต่ออุปกรณ์กล้อง",
+              suggestion: "กรุณากดปุ่มลองใหม่อีกครั้ง หรือสลับเป็นโหมดจำลอง",
+            };
+          }
+
+          setErrorInfo(classified);
+          setStreamActive(false);
+          setIsInitializing(false);
+          onCameraError?.(classified);
+          return;
+        }
+      }
+
+      if (stream) {
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play().catch(() => {});
+            setStreamActive(true);
+            setIsInitializing(false);
+            setErrorInfo(null);
+            onCameraReady?.();
+          };
+        } else {
           setStreamActive(true);
           setIsInitializing(false);
           setErrorInfo(null);
           onCameraReady?.();
-        };
-      } else {
-        setStreamActive(true);
-        setIsInitializing(false);
-        setErrorInfo(null);
-        onCameraReady?.();
+        }
       }
-    }
-  }, [stopActiveStream, onCameraReady, onCameraError]);
+    },
+    [stopActiveStream, onCameraReady, onCameraError]
+  );
 
   const handleStartCamera = useCallback(() => {
     setIsInitializing(true);
     setErrorInfo(null);
-    void requestCameraStream();
-  }, [requestCameraStream]);
+    void requestCameraStream(facingMode);
+  }, [requestCameraStream, facingMode]);
+
+  // สลับระหว่างกล้องหน้าและกล้องหลัง
+  const handleToggleFacingMode = () => {
+    const nextMode: CameraFacingMode = facingMode === "user" ? "environment" : "user";
+    setFacingMode(nextMode);
+    setIsInitializing(true);
+    setErrorInfo(null);
+    void requestCameraStream(nextMode);
+  };
 
   useEffect(() => {
     let isCancelled = false;
     if (!forceSimulatedMode) {
-      // ใช้ asynchronous scheduling เพื่อหลีกเลี่ยง synchronous setState ภายใน effect body
       const timer = setTimeout(() => {
         if (!isCancelled) {
-          void requestCameraStream();
+          void requestCameraStream(facingMode);
         }
       }, 0);
       return () => {
@@ -203,7 +238,7 @@ export function CameraMirror({
       isCancelled = true;
       stopActiveStream();
     };
-  }, [requestCameraStream, stopActiveStream, forceSimulatedMode]);
+  }, [requestCameraStream, stopActiveStream, forceSimulatedMode, facingMode]);
 
   return (
     <div
@@ -217,11 +252,14 @@ export function CameraMirror({
             playsInline
             muted
             autoPlay
-            className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
+            className={`w-full h-full object-cover ${
+              mirrored && facingMode === "user" ? "-scale-x-100" : ""
+            }`}
           />
 
-          {/* แถบแจ้งเตือนระดับแสงสว่าง (Low-Light Guidance Indicator) */}
+          {/* แถบควบคุมบนหน้าจอ: ตัวสลับกล้องหน้า/หลัง + ปุ่มเช็กระดับแสง */}
           <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-auto z-20">
+            {/* ปุ่มเช็กระดับแสง */}
             <button
               type="button"
               onClick={() => setIsLowLightWarning((prev) => !prev)}
@@ -232,7 +270,18 @@ export function CameraMirror({
               }`}
             >
               <SunMedium className="w-3.5 h-3.5" />
-              <span>{isLowLightWarning ? "แสงสว่างน้อย (คลิกดูคำแนะนำ)" : "ระดับแสงสว่าง: ปกติ"}</span>
+              <span>{isLowLightWarning ? "แสงสว่างน้อย" : "แสงสว่าง: ปกติ"}</span>
+            </button>
+
+            {/* ปุ่มสลับกล้องหน้า / หลัง */}
+            <button
+              type="button"
+              onClick={handleToggleFacingMode}
+              className="px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 shadow bg-black/60 hover:bg-black/80 text-white border border-white/20 backdrop-blur-md transition-all cursor-pointer"
+              title="สลับกล้องหน้า/กล้องหลัง"
+            >
+              <SwitchCamera className="w-3.5 h-3.5 text-[#6FD67F]" />
+              <span>{facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}</span>
             </button>
           </div>
 
@@ -250,12 +299,27 @@ export function CameraMirror({
               </div>
             </div>
           )}
+
+          {/* แถบแจ้งเตือนเมื่อผู้ใช้ขยับใบหน้าเร็วเกินไป */}
+          {isTooFastWarning && (
+            <div className="absolute top-12 left-3 right-3 p-2.5 rounded-xl bg-rose-950/90 border border-rose-500 text-rose-200 text-xs shadow-lg z-20 text-left animate-in fade-in duration-200">
+              <div className="flex items-start gap-2">
+                <Activity className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">ตรวจพบภาพเบลอ / ขยับใบหน้าเร็วเกินไป</p>
+                  <p className="text-[11px] text-rose-300 mt-0.5">
+                    กรุณาหยุดนิ่ง 1 วินาที แล้วหันศีรษะอย่างช้า ๆ เพื่อให้ระบบจับภาพได้คมชัด
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       ) : (
         /* 2. หน้าต่างแจ้งเตือนข้อผิดพลาดกล้อง หรือ โหมดจำลองภาพ */
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-slate-800 to-slate-950 p-6 text-center z-10">
-          {/* กรณีเลือกโหมดจำลอง (Simulated Mode) */}
           {forceSimulatedMode ? (
+            /* โหมดจำลองกล้องเสมือน (Simulated Mode) */
             <div className="flex flex-col items-center justify-center animate-in fade-in duration-300">
               <div className="relative w-44 h-56 border-4 border-dashed border-[#6FD67F]/60 rounded-full flex flex-col items-center justify-center animate-pulse bg-emerald-950/20">
                 <div className="w-16 h-16 rounded-full bg-[#1E8A4C]/30 flex items-center justify-center mb-2">
@@ -282,7 +346,7 @@ export function CameraMirror({
               </button>
             </div>
           ) : (
-            /* กรณีเกิดข้อผิดพลาดกล้อง (เช่น Requested device not found) */
+            /* ข้อผิดพลาดกล้อง: Not Found / Permission Denied / Busy / Unknown */
             <div className="flex flex-col items-center justify-center max-w-sm px-2 animate-in zoom-in-95 duration-300">
               <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-3">
                 {errorInfo?.category === "permission_denied" ? (
@@ -311,7 +375,10 @@ export function CameraMirror({
               <div className="flex items-center gap-2.5 w-full">
                 <button
                   type="button"
-                  onClick={handleStartCamera}
+                  onClick={() => {
+                    onRestartScan?.();
+                    handleStartCamera();
+                  }}
                   className="flex-1 py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 text-[#0B2B2B] text-xs font-bold flex items-center justify-center gap-1.5 shadow transition-all active:scale-95 cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isInitializing ? "animate-spin" : ""}`} />
@@ -327,16 +394,33 @@ export function CameraMirror({
                   <span>ใช้โหมดจำลอง</span>
                 </button>
               </div>
+
+              {/* ปุ่มยกเลิก / กลับหน้าแรก */}
+              {onCancelScan && (
+                <button
+                  type="button"
+                  onClick={onCancelScan}
+                  className="mt-3 text-xs text-slate-400 hover:text-white cursor-pointer underline"
+                >
+                  ยกเลิกการสแกนและกลับหน้าแรก
+                </button>
+              )}
             </div>
           )}
         </div>
       )}
 
-      {/* 3. กรอบ Biometric Scanning Overlay */}
+      {/* 3. กรอบ Biometric Scanning Overlay พร้อมบอกขั้นตอน (1/3, 2/3, 3/3) */}
       {showOverlayGrid && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          {/* ป้ายแสดงขั้นตอน 1/3, 2/3, 3/3 ด้านบนกรอบ */}
+          <div className="absolute top-12 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-[#6FD67F]/40 text-emerald-200 text-xs font-bold flex items-center gap-1.5">
+            <Eye className="w-3.5 h-3.5 text-[#6FD67F]" />
+            <span>ขั้นตอนที่ {currentStep}/{totalSteps}</span>
+          </div>
+
           {/* กรอบวงรีจัดตำแหน่งใบหน้า */}
-          <div className="relative w-60 sm:w-64 h-72 sm:h-80 border-2 border-[#6FD67F]/60 rounded-[120px] shadow-[0_0_20px_rgba(111,214,127,0.3)]">
+          <div className="relative w-56 sm:w-60 h-68 sm:h-74 border-2 border-[#6FD67F]/70 rounded-[120px] shadow-[0_0_24px_rgba(111,214,127,0.35)]">
             <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-[#6FD67F] rounded-tl-lg" />
             <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-[#6FD67F] rounded-tr-lg" />
             <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-[#6FD67F] rounded-bl-lg" />
@@ -348,15 +432,26 @@ export function CameraMirror({
             )}
           </div>
 
-          {/* ป้ายคำแนะนำด้านล่างกรอบ */}
+          {/* ป้ายคำแนะนำแบบเรียลไทม์ด้านล่างกรอบ */}
           {scanTitle && (
-            <div className="absolute bottom-4 px-4 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/20 text-white text-xs sm:text-sm font-bold flex items-center gap-2">
+            <div className="absolute bottom-4 px-4 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/20 text-white text-xs sm:text-sm font-bold flex items-center gap-2">
               {isScanning && <RefreshCw className="w-4 h-4 animate-spin text-[#6FD67F]" />}
               <span>{scanTitle}</span>
             </div>
           )}
         </div>
       )}
+
+      {/* ปุ่มจำลองเตือนขยับเร็วเกินไป / แสงไม่พอ (เพื่อการสาธิตและทดสอบระบบ) */}
+      <div className="absolute bottom-1 right-2 z-20 pointer-events-auto opacity-40 hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px] text-white">
+        <button
+          type="button"
+          onClick={() => setIsTooFastWarning((prev) => !prev)}
+          className="px-1.5 py-0.5 rounded bg-black/50 hover:bg-black/80 cursor-pointer"
+        >
+          {isTooFastWarning ? "ปิดเตือนขยับเร็ว" : "จำลองขยับเร็ว"}
+        </button>
+      </div>
     </div>
   );
 }
