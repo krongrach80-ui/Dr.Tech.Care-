@@ -8,6 +8,12 @@ import { create } from "zustand";
 import type { AppRole, PhysioScope } from "@/lib/rbac";
 import { writeAudit, getLocalAuditLogs, type AuditLogRecord } from "@/lib/audit/writer";
 import { guardDeleteUser, guardBanTarget, type AuthenticatedStaff } from "@/lib/auth/guard";
+import {
+  generateEntriesFromRule,
+  copyWeekEntries,
+  type ScheduleRuleInput,
+  type ScheduleEntryItem,
+} from "@/lib/schedule/generator";
 
 export interface UserAccount {
   id: string;
@@ -66,6 +72,7 @@ export interface ExerciseItem {
   difficulty: "easy" | "medium" | "hard";
   mediaUrl?: string | undefined;
   mediaType?: ("image" | "video") | undefined;
+  isActive?: boolean | undefined;
   createdBy: string;
   creatorName: string;
   createdAt: string;
@@ -141,20 +148,30 @@ interface AdminStoreState {
   addExercise: (data: Omit<ExerciseItem, "id" | "createdBy" | "creatorName" | "createdAt">) => Promise<void>;
   updateExercise: (id: string, data: Partial<ExerciseItem>) => Promise<void>;
   deleteExercise: (id: string) => Promise<void>;
+  deactivateExercise: (id: string) => Promise<void>;
 
-  // 7. Active Sessions & Bans
+  // 7. Schedule Management (Phase 3)
+  scheduleRules: ScheduleRuleInput[];
+  scheduleEntries: ScheduleEntryItem[];
+  addScheduleRule: (rule: Omit<ScheduleRuleInput, "id" | "createdBy">) => Promise<{ ruleId: string; generatedCount: number }>;
+  updateScheduleEntry: (entryId: string, updateScope: "single" | "future_series", data: Partial<ScheduleEntryItem>) => Promise<void>;
+  cancelScheduleEntry: (entryId: string, reason: string) => Promise<void>;
+  deleteScheduleEntry: (entryId: string) => Promise<{ deleted: boolean; statusSetToCancelled?: boolean }>;
+  copyWeekSchedule: (patientId: string, sourceWeekStart: string, targetWeekStart: string) => Promise<{ copiedCount: number; conflictCount: number }>;
+
+  // 8. Active Sessions & Bans
   activeSessions: ActiveSessionItem[];
   kickSession: (sessionId: string) => Promise<void>;
   bans: BanItem[];
   addBan: (kind: "device" | "ip", value: string, reason: string, durationHours: number | null) => Promise<void>;
   unban: (banId: string) => Promise<void>;
 
-  // 8. System Settings
+  // 9. System Settings
   settings: SystemSettingsState;
   updateSettings: (key: keyof SystemSettingsState, value: unknown) => Promise<void>;
   resetSettings: () => Promise<void>;
 
-  // 9. Audit Logs
+  // 10. Audit Logs
   auditLogs: AuditLogRecord[];
   refreshAuditLogs: () => void;
 }
@@ -713,6 +730,18 @@ export const useAdminStore = create<AdminStoreState>((set, get) => ({
       throw new Error("นักกายภาพสามารถลบได้เฉพาะท่าที่ตนเองสร้างเท่านั้น");
     }
 
+    // กฎกันพลาด: ห้ามลบท่าที่ยังอยู่ในตารางอนาคต ให้ปิดใช้งาน (is_active=false) แทน
+    const today = new Date().toISOString().split("T")[0] ?? "2026-10-10";
+    const futureCount = get().scheduleEntries.filter(
+      (e) => e.exerciseId === id && e.scheduledDate >= today && e.status === "planned"
+    ).length;
+
+    if (futureCount > 0) {
+      throw new Error(
+        `ไม่สามารถลบท่า "${target.name}" ได้เนื่องจากมีในตารางนัดหมายอนาคตจำนวน ${futureCount} รายการ กรุณาปิดการใช้งาน (is_active = false) แทนการลบ`
+      );
+    }
+
     set((state) => ({
       exercises: state.exercises.filter((e) => e.id !== id),
     }));
@@ -731,6 +760,362 @@ export const useAdminStore = create<AdminStoreState>((set, get) => ({
       deviceId: actor.deviceId,
     });
     get().refreshAuditLogs();
+  },
+
+  deactivateExercise: async (id) => {
+    const actor = get().currentActor;
+    const target = get().exercises.find((e) => e.id === id);
+    if (!target) return;
+
+    if (actor.role === "physio" && target.createdBy !== actor.userId) {
+      throw new Error("นักกายภาพสามารถแก้ไขสถานะได้เฉพาะท่าที่ตนเองสร้างเท่านั้น");
+    }
+
+    set((state) => ({
+      exercises: state.exercises.map((e) =>
+        e.id === id ? { ...e, isActive: false } : e
+      ),
+    }));
+
+    await writeAudit({
+      category: "data",
+      action: "deactivate_exercise",
+      outcome: "success",
+      actorId: actor.userId,
+      actorRole: actor.role,
+      actorLabel: actor.displayName,
+      targetTable: "exercises",
+      targetId: id,
+      changes: { name: target.name, isActive: false },
+      ip: actor.ip,
+      deviceId: actor.deviceId,
+    });
+    get().refreshAuditLogs();
+  },
+
+  scheduleRules: [
+    {
+      id: "rule-1",
+      patientId: "u0000000-0000-0000-0000-000000000001",
+      startDate: "2026-10-12",
+      endDate: "2026-10-29",
+      daysOfWeek: [1, 2, 3, 4], // จ-พฤ ท่ากายภาพช่วงเช้า
+      startTime: "09:00",
+      endTime: "09:45",
+      kind: "exercise",
+      exerciseId: "ex-1",
+      targetSets: 3,
+      targetReps: 10,
+      holdSeconds: 0,
+      difficulty: 1,
+      notes: "ฝึกกำลังกล้ามเนื้อหัวไหล่ช่วงเช้า",
+      createdBy: "p0000000-0000-0000-0000-000000000001",
+    },
+  ],
+
+  scheduleEntries: [
+    {
+      id: "ent-1",
+      ruleId: "rule-1",
+      patientId: "u0000000-0000-0000-0000-000000000001",
+      scheduledDate: "2026-10-08",
+      startTime: "09:00",
+      endTime: "09:45",
+      kind: "exercise",
+      exerciseId: "ex-1",
+      targetSets: 3,
+      targetReps: 10,
+      status: "completed",
+      completedAt: "2026-10-08T09:42:00Z",
+      notes: "ผู้ป่วยทำได้ครบทุกเซต องศาไหล่ดีขึ้น",
+      createdBy: "p0000000-0000-0000-0000-000000000001",
+      createdAt: "2026-10-01T00:00:00Z",
+      updatedAt: "2026-10-08T09:42:00Z",
+    },
+    {
+      id: "ent-2",
+      ruleId: "rule-1",
+      patientId: "u0000000-0000-0000-0000-000000000001",
+      scheduledDate: "2026-10-09",
+      startTime: "09:00",
+      endTime: "09:45",
+      kind: "exercise",
+      exerciseId: "ex-1",
+      targetSets: 3,
+      targetReps: 10,
+      status: "cancelled",
+      cancelReason: "คนไข้ไม่มา",
+      notes: "โทรแจ้งเจ้าหน้าที่ว่าติดธุระด่วน",
+      createdBy: "p0000000-0000-0000-0000-000000000001",
+      createdAt: "2026-10-01T00:00:00Z",
+      updatedAt: "2026-10-09T08:30:00Z",
+    },
+    {
+      id: "ent-3",
+      ruleId: "rule-1",
+      patientId: "u0000000-0000-0000-0000-000000000001",
+      scheduledDate: "2026-10-12",
+      startTime: "09:00",
+      endTime: "09:45",
+      kind: "exercise",
+      exerciseId: "ex-1",
+      targetSets: 3,
+      targetReps: 10,
+      status: "planned",
+      notes: "ฝึกกำลังกล้ามเนื้อหัวไหล่ช่วงเช้า",
+      createdBy: "p0000000-0000-0000-0000-000000000001",
+      createdAt: "2026-10-01T00:00:00Z",
+      updatedAt: "2026-10-01T00:00:00Z",
+    },
+    {
+      id: "ent-4",
+      ruleId: "rule-1",
+      patientId: "u0000000-0000-0000-0000-000000000001",
+      scheduledDate: "2026-10-13",
+      startTime: "09:00",
+      endTime: "09:45",
+      kind: "exercise",
+      exerciseId: "ex-1",
+      targetSets: 3,
+      targetReps: 10,
+      status: "planned",
+      notes: "ฝึกกำลังกล้ามเนื้อหัวไหล่ช่วงเช้า",
+      createdBy: "p0000000-0000-0000-0000-000000000001",
+      createdAt: "2026-10-01T00:00:00Z",
+      updatedAt: "2026-10-01T00:00:00Z",
+    },
+    {
+      id: "ent-5",
+      ruleId: "rule-1",
+      patientId: "u0000000-0000-0000-0000-000000000001",
+      scheduledDate: "2026-10-14",
+      startTime: "09:00",
+      endTime: "09:45",
+      kind: "exercise",
+      exerciseId: "ex-1",
+      targetSets: 3,
+      targetReps: 10,
+      status: "planned",
+      notes: "ฝึกกำลังกล้ามเนื้อหัวไหล่ช่วงเช้า",
+      createdBy: "p0000000-0000-0000-0000-000000000001",
+      createdAt: "2026-10-01T00:00:00Z",
+      updatedAt: "2026-10-01T00:00:00Z",
+    },
+    {
+      id: "ent-6",
+      ruleId: "rule-1",
+      patientId: "u0000000-0000-0000-0000-000000000001",
+      scheduledDate: "2026-10-15",
+      startTime: "09:00",
+      endTime: "09:45",
+      kind: "exercise",
+      exerciseId: "ex-1",
+      targetSets: 3,
+      targetReps: 10,
+      status: "planned",
+      notes: "ฝึกกำลังกล้ามเนื้อหัวไหล่ช่วงเช้า",
+      createdBy: "p0000000-0000-0000-0000-000000000001",
+      createdAt: "2026-10-01T00:00:00Z",
+      updatedAt: "2026-10-01T00:00:00Z",
+    },
+  ],
+
+  addScheduleRule: async (ruleData) => {
+    const actor = get().currentActor;
+    const ruleId = `rule-${Date.now().toString(36)}`;
+    const fullRule: ScheduleRuleInput = {
+      ...ruleData,
+      id: ruleId,
+      createdBy: actor.userId,
+    };
+
+    const existingEntries = get().scheduleEntries;
+    const { newEntries } = generateEntriesFromRule(fullRule, existingEntries);
+
+    set((state) => ({
+      scheduleRules: [...state.scheduleRules, fullRule],
+      scheduleEntries: [...state.scheduleEntries, ...newEntries],
+    }));
+
+    await writeAudit({
+      category: "data",
+      action: "create_schedule_rule",
+      outcome: "success",
+      actorId: actor.userId,
+      actorRole: actor.role,
+      actorLabel: actor.displayName,
+      targetTable: "schedule_rules",
+      targetId: ruleId,
+      changes: {
+        patientId: fullRule.patientId,
+        exerciseId: fullRule.exerciseId,
+        daysOfWeek: fullRule.daysOfWeek,
+        generatedCount: newEntries.length,
+      },
+      ip: actor.ip,
+      deviceId: actor.deviceId,
+    });
+    get().refreshAuditLogs();
+
+    return { ruleId, generatedCount: newEntries.length };
+  },
+
+  updateScheduleEntry: async (entryId, updateScope, data) => {
+    const actor = get().currentActor;
+    const target = get().scheduleEntries.find((e) => e.id === entryId);
+    if (!target) return;
+
+    const nowIso = new Date().toISOString();
+
+    set((state) => {
+      if (updateScope === "single" || !target.ruleId) {
+        return {
+          scheduleEntries: state.scheduleEntries.map((e) =>
+            e.id === entryId ? { ...e, ...data, updatedBy: actor.userId, updatedAt: nowIso } : e
+          ),
+        };
+      } else {
+        return {
+          scheduleEntries: state.scheduleEntries.map((e) => {
+            if (
+              e.ruleId === target.ruleId &&
+              e.scheduledDate >= target.scheduledDate &&
+              e.status === "planned"
+            ) {
+              return { ...e, ...data, updatedBy: actor.userId, updatedAt: nowIso };
+            }
+            return e;
+          }),
+        };
+      }
+    });
+
+    await writeAudit({
+      category: "data",
+      action: "update_schedule_entry",
+      outcome: "success",
+      actorId: actor.userId,
+      actorRole: actor.role,
+      actorLabel: actor.displayName,
+      targetTable: "schedule_entries",
+      targetId: entryId,
+      changes: { scope: updateScope, updated: data },
+      ip: actor.ip,
+      deviceId: actor.deviceId,
+    });
+    get().refreshAuditLogs();
+  },
+
+  cancelScheduleEntry: async (entryId, reason) => {
+    const actor = get().currentActor;
+    const target = get().scheduleEntries.find((e) => e.id === entryId);
+    if (!target) return;
+
+    const nowIso = new Date().toISOString();
+    set((state) => ({
+      scheduleEntries: state.scheduleEntries.map((e) =>
+        e.id === entryId
+          ? {
+              ...e,
+              status: "cancelled",
+              cancelReason: reason,
+              updatedBy: actor.userId,
+              updatedAt: nowIso,
+            }
+          : e
+      ),
+    }));
+
+    await writeAudit({
+      category: "data",
+      action: "cancel_schedule_entry",
+      outcome: "success",
+      actorId: actor.userId,
+      actorRole: actor.role,
+      actorLabel: actor.displayName,
+      targetTable: "schedule_entries",
+      targetId: entryId,
+      changes: { reason, previousStatus: target.status },
+      ip: actor.ip,
+      deviceId: actor.deviceId,
+    });
+    get().refreshAuditLogs();
+  },
+
+  deleteScheduleEntry: async (entryId) => {
+    const actor = get().currentActor;
+    const target = get().scheduleEntries.find((e) => e.id === entryId);
+    if (!target) return { deleted: false };
+
+    // กติกา: อนาคตและยังไม่มีผลการฝึก = ลบจริง มิฉะนั้นห้ามลบประวัติที่มีผลแล้ว
+    if (target.status === "completed" || target.completedAt) {
+      throw new Error("ห้ามลบประวัติการฝึกที่มีผลการรักษาแล้ว สามารถทำได้เพียงเปลี่ยนสถานะเป็น 'ยกเลิก' เท่านั้น");
+    }
+
+    set((state) => ({
+      scheduleEntries: state.scheduleEntries.filter((e) => e.id !== entryId),
+    }));
+
+    await writeAudit({
+      category: "data",
+      action: "delete_schedule_entry",
+      outcome: "success",
+      actorId: actor.userId,
+      actorRole: actor.role,
+      actorLabel: actor.displayName,
+      targetTable: "schedule_entries",
+      targetId: entryId,
+      changes: {
+        scheduledDate: target.scheduledDate,
+        startTime: target.startTime,
+        exerciseId: target.exerciseId,
+      },
+      ip: actor.ip,
+      deviceId: actor.deviceId,
+    });
+    get().refreshAuditLogs();
+
+    return { deleted: true };
+  },
+
+  copyWeekSchedule: async (patientId, sourceWeekStart, targetWeekStart) => {
+    const actor = get().currentActor;
+    const existing = get().scheduleEntries;
+    const { copiedEntries, conflictCount } = copyWeekEntries(
+      sourceWeekStart,
+      targetWeekStart,
+      patientId,
+      existing,
+      actor.userId
+    );
+
+    if (copiedEntries.length > 0) {
+      set((state) => ({
+        scheduleEntries: [...state.scheduleEntries, ...copiedEntries],
+      }));
+
+      await writeAudit({
+        category: "data",
+        action: "copy_week_schedule",
+        outcome: "success",
+        actorId: actor.userId,
+        actorRole: actor.role,
+        actorLabel: actor.displayName,
+        targetTable: "schedule_entries",
+        targetId: patientId,
+        changes: {
+          sourceWeekStart,
+          targetWeekStart,
+          copiedCount: copiedEntries.length,
+          conflictCount,
+        },
+        ip: actor.ip,
+        deviceId: actor.deviceId,
+      });
+      get().refreshAuditLogs();
+    }
+
+    return { copiedCount: copiedEntries.length, conflictCount };
   },
 
   activeSessions: [

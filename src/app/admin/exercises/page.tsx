@@ -12,12 +12,21 @@ import {
   FileVideo,
   ImageIcon,
   CheckCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { useAdminStore, type ExerciseItem } from "@/lib/stores/adminStore";
 import { exerciseFormSchema } from "@/lib/schemas/admin";
 
 export default function AdminExercisesPage() {
-  const { currentActor, exercises, addExercise, updateExercise, deleteExercise } = useAdminStore();
+  const {
+    currentActor,
+    exercises,
+    addExercise,
+    updateExercise,
+    deleteExercise,
+    deactivateExercise,
+    scheduleEntries,
+  } = useAdminStore();
   const isDirector = currentActor.role === "director";
 
   // Modal states
@@ -171,6 +180,25 @@ export default function AdminExercisesPage() {
     }
   };
 
+  // Deactivate Exercise (Phase 3 Rule: if used in future schedules, deactivate instead of delete)
+  const handleDeactivateExercise = async () => {
+    if (!selectedExercise) return;
+    try {
+      await deactivateExercise(selectedExercise.id);
+      setIsDeleteModalOpen(false);
+      setSelectedExercise(null);
+    } catch (err: unknown) {
+      setFormError(err instanceof Error ? err.message : "ไม่สามารถปิดการใช้งานได้");
+    }
+  };
+
+  const todayStr = new Date().toISOString().split("T")[0] ?? "2026-10-10";
+  const affectedFutureEntries = selectedExercise
+    ? scheduleEntries.filter(
+        (e) => e.exerciseId === selectedExercise.id && e.scheduledDate >= todayStr && e.status === "planned"
+      )
+    : [];
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
@@ -252,6 +280,11 @@ export default function AdminExercisesPage() {
                   )}
 
                   <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
+                    {ex.isActive === false && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700 border border-slate-300">
+                        ปิดใช้งานแล้ว
+                      </span>
+                    )}
                     <span
                       className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         ex.difficulty === "easy"
@@ -545,14 +578,14 @@ export default function AdminExercisesPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete / Deactivate Confirmation Modal (Phase 3 Safeguard) */}
       {isDeleteModalOpen && selectedExercise && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-rose-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-rose-200">
             <div className="flex items-center justify-between border-b border-rose-100 pb-3">
               <h2 className="text-base font-bold text-rose-700 flex items-center gap-2">
                 <Trash2 className="w-5 h-5" />
-                <span>ยืนยันการลบท่ากายภาพ</span>
+                <span>จัดการการลบท่ากายภาพ</span>
               </h2>
               <button
                 type="button"
@@ -565,9 +598,47 @@ export default function AdminExercisesPage() {
 
             <div className="flex flex-col gap-4 mt-4 text-xs">
               <p className="text-slate-700">
-                คุณแน่ใจหรือไม่ว่าต้องการลบท่า{" "}
-                <span className="font-bold text-slate-900">&ldquo;{selectedExercise.name}&rdquo;</span>?
+                ท่ากายภาพ:{" "}
+                <span className="font-bold text-slate-900">&ldquo;{selectedExercise.name}&rdquo;</span>
               </p>
+
+              {affectedFutureEntries.length > 0 ? (
+                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 flex flex-col gap-2">
+                  <div className="flex items-center gap-2 font-bold text-amber-800">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>ห้ามลบท่าที่ยังอยู่ในตารางนัดหมายอนาคต</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    ตรวจพบตารางกายภาพในอนาคตที่ต้องใช้ท่านี้จำนวน{" "}
+                    <strong className="text-amber-950 font-bold">{affectedFutureEntries.length} รายการ</strong>{" "}
+                    ระบบไม่อนุญาตให้ลบท่านี้ออกจากฐานข้อมูล แต่คุณสามารถ{" "}
+                    <strong>&ldquo;ปิดการใช้งาน (is_active = false)&rdquo;</strong> ได้
+                    เพื่อป้องกันไม่ให้ถูกเลือกสร้างตารางใหม่
+                  </p>
+                  <div className="mt-1 flex flex-col gap-1 text-[11px] font-mono text-amber-800 bg-amber-100/60 p-2.5 rounded-xl">
+                    <span className="font-semibold text-amber-900">ตัวอย่างรายการที่ได้รับผลกระทบ:</span>
+                    {affectedFutureEntries.slice(0, 3).map((ent) => (
+                      <span key={ent.id}>
+                        • วันที่ {ent.scheduledDate} เวลา {ent.startTime}-{ent.endTime}
+                      </span>
+                    ))}
+                    {affectedFutureEntries.length > 3 && (
+                      <span>... และอีก {affectedFutureEntries.length - 3} รายการ</span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-slate-600">
+                  ไม่มีตารางนัดหมายในอนาคตที่ใช้ท่านี้ คุณแน่ใจหรือไม่ว่าต้องการลบท่านี้ออกจากระบบอย่างถาวร?
+                </p>
+              )}
+
+              {formError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 font-medium">
+                  {formError}
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -576,14 +647,26 @@ export default function AdminExercisesPage() {
                 >
                   ยกเลิก
                 </button>
-                <button
-                  type="button"
-                  id="btn-confirm-delete-exercise"
-                  onClick={handleDeleteExercise}
-                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer"
-                >
-                  ลบท่ากายภาพ
-                </button>
+
+                {affectedFutureEntries.length > 0 ? (
+                  <button
+                    type="button"
+                    id="btn-deactivate-exercise"
+                    onClick={handleDeactivateExercise}
+                    className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer transition-all shadow-xs"
+                  >
+                    ปิดการใช้งานท่านี้แทน (is_active = false)
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    id="btn-confirm-delete-exercise"
+                    onClick={handleDeleteExercise}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer transition-all shadow-xs"
+                  >
+                    ลบท่ากายภาพ
+                  </button>
+                )}
               </div>
             </div>
           </div>

@@ -117,6 +117,43 @@ export const systemSettingsFormSchema = z.object({
   lockoutDurationMinutes: z.coerce.number().int().min(5).max(60).default(15),
 });
 
+// 7. กำหนดตารางกายภาพ (Schedule Rules & Entries)
+export const scheduleRuleFormSchema = z.object({
+  patientId: z.string().min(1, "กรุณาเลือกคนไข้"),
+  startDate: z.string().min(1, "กรุณาเลือกวันเริ่มต้น"),
+  endDate: z.string().min(1, "กรุณาเลือกวันสิ้นสุด"),
+  daysOfWeek: z.array(z.number().int().min(1).max(7)).min(1, "กรุณาเลือกวันในสัปดาห์อย่างน้อย 1 วัน"),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "รูปแบบเวลาไม่ถูกต้อง (HH:mm)"),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "รูปแบบเวลาไม่ถูกต้อง (HH:mm)").optional(),
+  kind: z.enum(["exercise", "quiz"]).default("exercise"),
+  exerciseId: z.string().min(1, "กรุณาเลือกท่ากายภาพ"),
+  quizSetId: z.string().optional(),
+  targetSets: z.coerce.number().int().min(1).max(10).default(3),
+  targetReps: z.coerce.number().int().min(1).max(50).default(10),
+  holdSeconds: z.coerce.number().int().min(0).max(300).default(0),
+  difficulty: z.coerce.number().int().min(1).max(5).default(1),
+  notes: z.string().max(500).optional(),
+}).refine((data) => data.endDate >= data.startDate, {
+  message: "วันสิ้นสุดต้องอยู่หลังจากหรือตรงกับวันเริ่มต้น",
+  path: ["endDate"],
+});
+
+export const cancelScheduleEntrySchema = z.object({
+  entryId: z.string().min(1),
+  reason: z.enum(["คนไข้ไม่มา", "เลื่อนนัด", "ไม่สบาย", "อื่นๆ"]),
+  customReason: z.string().max(200).optional(),
+});
+
+export const updateScheduleEntrySchema = z.object({
+  entryId: z.string().min(1),
+  scope: z.enum(["single", "future_series"]),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "รูปแบบเวลาไม่ถูกต้อง"),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "รูปแบบเวลาไม่ถูกต้อง").optional(),
+  targetSets: z.coerce.number().int().min(1).max(10),
+  targetReps: z.coerce.number().int().min(1).max(50),
+  notes: z.string().max(500).optional(),
+});
+
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type PatientFormInput = z.infer<typeof patientFormSchema>;
 export type PhysioNoteInput = z.infer<typeof physioNoteSchema>;
@@ -124,3 +161,6 @@ export type PhysioProfileInput = z.infer<typeof physioProfileSchema>;
 export type ExerciseFormInput = z.infer<typeof exerciseFormSchema>;
 export type BanTargetInput = z.infer<typeof banTargetSchema>;
 export type SystemSettingsFormInput = z.infer<typeof systemSettingsFormSchema>;
+export type ScheduleRuleFormInput = z.infer<typeof scheduleRuleFormSchema>;
+export type CancelScheduleEntryInput = z.infer<typeof cancelScheduleEntrySchema>;
+export type UpdateScheduleEntryInput = z.infer<typeof updateScheduleEntrySchema>;

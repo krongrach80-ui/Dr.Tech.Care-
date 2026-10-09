@@ -14,6 +14,7 @@ import {
   LogOut,
   LayoutDashboard,
   UserCog,
+  Calendar,
 } from "lucide-react";
 import { useAdminStore } from "@/lib/stores/adminStore";
 import { roleLabelThai, getAccessibleAdminMenus, type AdminMenuKey } from "@/lib/rbac";
@@ -54,9 +55,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       icon: <Activity className="w-5 h-5" />,
     },
     schedule: {
-      label: "ตารางฝึกกายภาพ",
+      label: "ตารางกายภาพ",
       href: "/admin/schedule",
-      icon: <LayoutDashboard className="w-5 h-5" />,
+      icon: <Calendar className="w-5 h-5" />,
     },
     symptoms: {
       label: "แจ้งอาการผิดปกติ",
@@ -75,18 +76,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     },
   };
 
-  // กรองเฉพาะเมนูที่กำหนดใน Phase 1
-  const phase1MenuKeys: AdminMenuKey[] = [
+  // เมนูที่เปิดใช้งานในระบบ Admin (รวม Phase 3 ตารางกายภาพ)
+  const activeMenuKeys: AdminMenuKey[] = [
     "overview",
     "users",
     "patients",
     "physios",
     "exercises",
+    "schedule",
     "audit",
     "settings",
   ];
 
-  const visibleMenus = phase1MenuKeys.filter((key) => accessibleMenus.includes(key));
+  const visibleMenus = activeMenuKeys.filter((key) => accessibleMenus.includes(key));
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row text-slate-900 font-sans">

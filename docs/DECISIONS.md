@@ -179,3 +179,40 @@
      - หน้าตั้งค่าระบบบันทึกค่าได้และแจ้งเตือนใน UI ว่าค่าจะมีผลเมื่อเปิดใช้ระบบสแกนใบหน้าและวิเคราะห์ท่าในเฟสถัดไป
 - **ผลลัพธ์**: โครงสร้างแข็งแกร่ง ปลอดภัย ผ่านเกณฑ์การทดสอบ 100% ทั้งระดับ Unit Tests, Typecheck, Lint, Build และ Playwright E2E
 
+---
+
+### ADR-013: สถาปัตยกรรมระบบกำหนดตารางกายภาพ เฟส 3 (Physiotherapy Scheduling Window 7)
+- **วันที่**: 2026-10-10 (Phase 3)
+- **สถานะ**: อนุมัติแล้ว (Accepted)
+- **บริบท**:
+  - ตาม Master Prompt หัวข้อ 5.6 และ 13.5: หน้าต่างที่ 7 สำหรับทั้งแอดมินใหญ่ (`director`) และนักกายภาพ (`physio`) คือหน้าจอ `/admin/schedule`
+  - รองรับการสร้างตารางช่วงวันที่ หรือเลือกเฉพาะบางวัน + วันในสัปดาห์ (จ-อา) เช่น "จ–พฤ ท่ากายภาพช่วงเช้า"
+  - รองรับ Idempotency, เขตเวลา Asia/Bangkok, ตรวจเวลาทับซ้อน (Overlap Detection) แบบเรียลไทม์
+  - มีระบบ Grace period 60 นาทีผ่าน background job (pg_cron ทุก 15 นาที) ปรับ planned เป็น missed
+  - ระบบแก้ไขรายวัน หรือแก้ไขทั้งชุดที่เหลือ (Prompt ถามผู้ใช้), คัดลอกสัปดาห์ (+7 วัน), ยกเลิกพร้อมเหตุผลด่วน, และกฎการลบรายการ/ท่ากายภาพ
+- **การตัดสินใจ**:
+  1. **โครงสร้างฐานข้อมูล & Idempotent Generation**:
+     - Migration `0017_schedule_phase3.sql` มีฟังก์ชัน `generate_schedule_entries(p_rule_id uuid)`
+     - ใช้ unique constraint `(rule_id, scheduled_date, start_time)` และ `ON CONFLICT DO NOTHING` เพื่อให้เป็น idempotent 100%
+     - คำนวณวันตาม ISO DOW (1=จันทร์ .. 7=อาทิตย์) ในเขตเวลา `Asia/Bangkok` ข้ามเดือนและข้ามปีได้อย่างสมบูรณ์
+  2. **Background Cron & Grace Period Transitions**:
+     - ฟังก์ชัน `maintenance_mark_missed_schedules_grace()` ตรวจสอบรายการสถานะ `planned` ที่ `scheduled_date + end_time + 60 minutes < now() at time zone 'Asia/Bangkok'` และปรับสถานะเป็น `missed`
+     - ลงทะเบียนใน `pg_cron` ทุก 15 นาที (`*/15 * * * *`)
+  3. **Row-Level Security (RLS) 3 บทบาท**:
+     - `director`: เข้าถึงและจัดการได้ทั้งหมด
+     - `physio`: เข้าถึงตาม `can_access_patient` (หาก `physio_scope = 'all'` เห็นทุกคน, หาก `physio_scope = 'own'` เห็นเฉพาะคนไข้ที่ตนรับผิดชอบ)
+     - `patient`: มองเห็นเฉพาะตารางของตนเอง และห้ามแก้ไข/ลบ
+  4. **กติกาการลบและแก้ไข (Safeguards)**:
+     - **ท่ากายภาพ**: ห้ามลบท่าที่ยังอยู่ในตารางนัดหมายอนาคต (มี Trigger `check_exercise_future_schedules` ป้องกันในระดับ DB และ UI มีปุ่มปิดการใช้งาน `is_active = false` แทน พร้อมแจ้งเตือนจำนวนรายการที่กระทบ)
+     - **ตารางนัดหมาย**: หากเป็นอนาคตและยังไม่มีผลการรักษา อนุญาตให้ลบจริงได้ หากมีผลการรักษาแล้ว ห้ามลบเด็ดขาด (เปลี่ยนสถานะเป็น 'ยกเลิก' แทน)
+     - **การแก้ไข**: หากรายการเกิดจาก Recurring Rule จะถามผู้ใช้ให้เลือกขอบเขต: "เฉพาะรายการวันนี้" หรือ "ทั้งชุดที่เหลือในอนาคต"
+  5. **UI/UX & Thai Buddhist Era**:
+     - แสดงปี พ.ศ. (+543) ในทุกแถบนำทางและหัวข้อวันที่
+     - สีสถานะ: ทำแล้ว (emerald), รอ (blue), พลาด (rose), ยกเลิก (slate ขีดฆ่า)
+     - ซ่อน UI เลือกมินิเกมจนกว่าจะถึงเฟสมินิเกมตามข้อกำหนด
+  6. **การทดสอบ**:
+     - Unit tests 9 ข้อใน `tests/unit/schedule.test.ts` (cross-month, cross-year, overlap, idempotency, copy week)
+     - pgTAP test suite 28 ข้อใน `tests/db/phase3_schedule.sql` ครบทุกบทบาทและ physio_scope
+     - Playwright E2E tests 5 ข้อใน `tests/e2e/schedule-phase3.spec.ts` ผ่าน 100%
+
+
