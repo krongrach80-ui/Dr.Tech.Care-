@@ -91,6 +91,16 @@ export function useFaceLivenessScanner({
   const compliantFramesCountRef = useRef<number>(0);
   const isMountedRef = useRef<boolean>(true);
 
+  const onErrorRef = useRef(onError);
+  const onStepCompleteRef = useRef(onStepComplete);
+  const onAllStepsCompleteRef = useRef(onAllStepsComplete);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+    onStepCompleteRef.current = onStepComplete;
+    onAllStepsCompleteRef.current = onAllStepsComplete;
+  });
+
   const currentPose: LivenessPose = challenge.sequence[currentStepIndex];
   const stepNumber: 1 | 2 | 3 = (currentStepIndex + 1) as 1 | 2 | 3;
 
@@ -146,7 +156,7 @@ export function useFaceLivenessScanner({
         if (isMountedRef.current) {
           setErrorInfo(err);
           setStatus("error");
-          onError?.(err);
+          onErrorRef.current?.(err);
         }
         return;
       }
@@ -176,7 +186,7 @@ export function useFaceLivenessScanner({
           if (isMountedRef.current) {
             setErrorInfo(classified);
             setStatus("error");
-            onError?.(classified);
+            onErrorRef.current?.(classified);
           }
           return;
         }
@@ -210,6 +220,10 @@ export function useFaceLivenessScanner({
                   }
                 })
                 .catch((playErr) => {
+                  // AbortError เกิดขึ้นเมื่อ play ถูกแทรกระหว่าง unmount/re-render ไม่ใช่ error ร้ายแรง
+                  if (playErr instanceof DOMException && playErr.name === "AbortError") {
+                    return;
+                  }
                   console.error("[FaceScanner] video.play() error:", playErr);
                   if (isMountedRef.current) {
                     setStatus("scanning");
@@ -232,7 +246,7 @@ export function useFaceLivenessScanner({
         }
       }
     },
-    [facingMode, stopActiveStream, loadAIModel, onError]
+    [facingMode, stopActiveStream, loadAIModel]
   );
 
   const toggleFacingMode = useCallback(() => {
@@ -317,7 +331,7 @@ export function useFaceLivenessScanner({
       verifiedAt: Date.now(),
     };
 
-    onStepComplete?.(stepNumber, currentPose, payload);
+    onStepCompleteRef.current?.(stepNumber, currentPose, payload);
 
     if (currentStepIndex < 2) {
       setCurrentStepIndex((prev) => (prev + 1) as 0 | 1 | 2);
@@ -333,12 +347,12 @@ export function useFaceLivenessScanner({
           : CAMERA_ERROR_CATALOG.unknown;
         setErrorInfo(err);
         setStatus("error");
-        onError?.(err);
+        onErrorRef.current?.(err);
         return;
       }
 
       setStatus("success");
-      onAllStepsComplete?.(payload);
+      onAllStepsCompleteRef.current?.(payload);
     }
   }, [
     currentPose,
@@ -347,9 +361,6 @@ export function useFaceLivenessScanner({
     stepNumber,
     currentStepIndex,
     stepTimeoutSeconds,
-    onStepComplete,
-    onAllStepsComplete,
-    onError,
   ]);
 
   // MediaPipe FaceLandmarker Detection Loop

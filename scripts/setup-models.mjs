@@ -73,19 +73,8 @@ async function verifyOrDownloadTaskModels() {
       }
     }
 
-    console.log(`[กำลังเตรียม] ไม่พบไฟล์ ${model.fileName} กำลังลองดาวน์โหลดจาก Google Storage...`);
-    try {
-      const response = await fetch(model.url);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`);
-      }
-      const buffer = Buffer.from(await response.arrayBuffer());
-      fs.writeFileSync(targetPath, buffer);
-      console.log(`[สำเร็จ] ดาวน์โหลด ${model.fileName} เรียบร้อย (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
-    } catch (err) {
-      console.warn(`[ข้อผิดพลาด] ไม่สามารถดาวน์โหลด ${model.fileName} อัตโนมัติ: ${err.message}`);
-      missingModels.push(model);
-    }
+    console.warn(`[ไม่พบไฟล์] ไม่พบไฟล์ ${model.fileName} (ผู้ใช้ต้องจัดเตรียมเอง ห้ามสร้างไฟล์ปลอม)`);
+    missingModels.push(model);
   }
 
   if (missingModels.length > 0) {

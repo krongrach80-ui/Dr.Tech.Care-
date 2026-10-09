@@ -98,6 +98,13 @@ export function useCamera({
   const rvfcIdRef = useRef<number | null>(null);
   const isStartingRef = useRef(false);
   const isMountedRef = useRef(true);
+  const onErrorRef = useRef(onError);
+  const onStreamReadyRef = useRef(onStreamReady);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+    onStreamReadyRef.current = onStreamReady;
+  });
 
   const stop = useCallback(() => {
     if (
@@ -180,7 +187,7 @@ export function useCamera({
       const err = CAMERA_ERRORS.not_supported;
       console.error("[useCamera Error] navigator.mediaDevices.getUserMedia is not supported");
       setError(err);
-      onError?.(err);
+      onErrorRef.current?.(err);
       isStartingRef.current = false;
       return;
     }
@@ -209,7 +216,7 @@ export function useCamera({
         const errorDetails = parseCameraError(secondError || firstError);
         if (isMountedRef.current) {
           setError(errorDetails);
-          onError?.(errorDetails);
+          onErrorRef.current?.(errorDetails);
         }
         isStartingRef.current = false;
         return;
@@ -225,7 +232,7 @@ export function useCamera({
     if (stream) {
       streamRef.current = stream;
       setStreamState(stream);
-      onStreamReady?.(stream);
+      onStreamReadyRef.current?.(stream);
 
       if (videoRef.current) {
         const videoElement = videoRef.current;
@@ -243,11 +250,15 @@ export function useCamera({
                 if (isMountedRef.current) setIsStreaming(true);
               })
               .catch((playErr) => {
+                // ข้าม AbortError ที่เกิดจากการสลับ component หรือ unmount ใน Strict Mode
+                if (playErr instanceof DOMException && playErr.name === "AbortError") {
+                  return;
+                }
                 console.error("[useCamera] video.play() error:", playErr);
                 const playErrorDetails = parseCameraError(playErr);
                 if (isMountedRef.current) {
                   setError(playErrorDetails);
-                  onError?.(playErrorDetails);
+                  onErrorRef.current?.(playErrorDetails);
                 }
               });
           } else {
@@ -268,7 +279,7 @@ export function useCamera({
     }
 
     isStartingRef.current = false;
-  }, [facingMode, idealWidth, idealHeight, onError, onStreamReady, parseCameraError, stop]);
+  }, [facingMode, idealWidth, idealHeight, parseCameraError, stop]);
 
   const restart = useCallback(async () => {
     stop();
