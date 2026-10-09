@@ -98,6 +98,7 @@ export default function KioskPage() {
   // Login & Registration Liveness Challenge Step (center -> left -> right)
   const [loginLivenessStep, setLoginLivenessStep] = useState<"center" | "left" | "right">("center");
   const [regLivenessStep, setRegLivenessStep] = useState<"center" | "left" | "right">("center");
+  const [speechEnabled, setSpeechEnabled] = useState(true);
 
   // Daily Exercise State
   const [exerciseReps, setExerciseReps] = useState(0);
@@ -435,14 +436,16 @@ export default function KioskPage() {
                   isScanning={true}
                   currentStep={loginLivenessStep === "center" ? 1 : loginLivenessStep === "left" ? 2 : 3}
                   totalSteps={3}
+                  speechEnabled={speechEnabled}
+                  onToggleSpeech={() => setSpeechEnabled((prev) => !prev)}
                   onRestartScan={() => setLoginLivenessStep("center")}
                   onCancelScan={handleFullReset}
                   scanTitle={
                     loginLivenessStep === "center"
-                      ? "มองตรงที่กล้อง"
+                      ? "กรุณามองตรงที่กล้อง"
                       : loginLivenessStep === "left"
-                      ? "หันหน้าไปทางซ้ายช้าๆ"
-                      : "หันหน้าไปทางขวาช้าๆ"
+                      ? "หันหน้าไปทางซ้ายช้า ๆ"
+                      : "หันหน้าไปทางขวาช้า ๆ"
                   }
                   className="w-full h-full"
                 />
@@ -573,7 +576,7 @@ export default function KioskPage() {
                 <BigButton
                   variant="strong-primary"
                   className="!min-h-[64px] !text-lg"
-                  onClick={() => transitionTo("patient_home")}
+                  onClick={() => router.push("/home")}
                   icon={<ArrowRight className="w-5 h-5" />}
                 >
                   ใช่ (เข้าสู่หน้าหลักของฉัน)
