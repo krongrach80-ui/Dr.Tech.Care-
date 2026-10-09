@@ -176,4 +176,49 @@ describe("Biometrics & Liveness Specification (PDPA Compliant)", () => {
       expect(result.errorCategory).toBe("low_light");
     });
   });
+
+  describe("MediaPipe Landmark Pose Calculation", () => {
+    it("calculates neutral yaw for centered facial landmarks", async () => {
+      const { calculateHeadPoseFromLandmarks } = await import("@/lib/mediapipe");
+      const syntheticLandmarks = new Array(478).fill(null).map(() => ({
+        x: 0.5,
+        y: 0.5,
+        z: 0.0,
+        visibility: 1.0,
+      }));
+      // Nose
+      syntheticLandmarks[1] = { x: 0.5, y: 0.5, z: 0.0, visibility: 1.0 };
+      // Left cheek
+      syntheticLandmarks[234] = { x: 0.3, y: 0.5, z: 0.0, visibility: 1.0 };
+      // Right cheek
+      syntheticLandmarks[454] = { x: 0.7, y: 0.5, z: 0.0, visibility: 1.0 };
+      // Forehead
+      syntheticLandmarks[10] = { x: 0.5, y: 0.2, z: 0.0, visibility: 1.0 };
+      // Chin
+      syntheticLandmarks[152] = { x: 0.5, y: 0.8, z: 0.0, visibility: 1.0 };
+      // Eyes
+      syntheticLandmarks[33] = { x: 0.4, y: 0.4, z: 0.0, visibility: 1.0 };
+      syntheticLandmarks[263] = { x: 0.6, y: 0.4, z: 0.0, visibility: 1.0 };
+
+      const pose = calculateHeadPoseFromLandmarks(syntheticLandmarks);
+      expect(pose.yaw).toBe(0);
+      expect(pose.faceSizeRatio).toBeGreaterThan(0.2);
+    });
+
+    it("extracts 128-d vector embedding strictly from landmark coordinates", async () => {
+      const { extractEmbeddingFromLandmarks } = await import("@/lib/mediapipe");
+      const syntheticLandmarks = new Array(478).fill(null).map((_, i) => ({
+        x: 0.5 + Math.sin(i) * 0.1,
+        y: 0.5 + Math.cos(i) * 0.1,
+        z: 0.05,
+        visibility: 1.0,
+      }));
+
+
+      const embedding = extractEmbeddingFromLandmarks(syntheticLandmarks, "center", "NONCE-12345");
+      expect(embedding).toHaveLength(128);
+      expect(embedding.every((v) => typeof v === "number" && !Number.isNaN(v))).toBe(true);
+    });
+  });
 });
+

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import type { NormalizedLandmark } from "@mediapipe/tasks-vision";
 import {
   LivenessPose,
   ServerChallenge,
@@ -11,10 +12,17 @@ import {
   generateServerChallenge,
   classifyCameraStreamError,
   extract128dEmbeddingFromPose,
+  checkPoseYawCompliance,
   getStepVoicePrompt,
   verifyBiometricSubmission,
   CAMERA_ERROR_CATALOG,
 } from "@/lib/biometrics";
+import {
+  initializeFaceLandmarker,
+  cleanupFaceLandmarker,
+  detectFaceLandmarksFromVideo,
+  extractEmbeddingFromLandmarks,
+} from "@/lib/mediapipe";
 import { registerActiveKioskMediaStream } from "@/lib/kiosk";
 import { speakThai, stopSpeech } from "@/lib/speech";
 
@@ -76,9 +84,11 @@ export function useFaceLivenessScanner({
   // สถานะเสียงพูด
   const [isMuted, setIsMuted] = useState(!speechEnabled);
 
-  // Refs สำหรับการควบคุม WebRTC และ Lifecycle
+  // Refs สำหรับการควบคุม WebRTC, MediaPipe และ Lifecycle
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const latestLandmarksRef = useRef<NormalizedLandmark[] | null>(null);
+  const compliantFramesCountRef = useRef<number>(0);
 
   // ท่าปัจจุบันตาม sequence จาก Server Challenge
   const currentPose: LivenessPose = challenge.sequence[currentStepIndex];
@@ -95,6 +105,7 @@ export function useFaceLivenessScanner({
     }
     registerActiveKioskMediaStream(null);
     stopSpeech();
+    cleanupFaceLandmarker();
   }, []);
 
   // ขอสิทธิ์และเปิดกล้องจากอุปกรณ์ด้วย getUserMedia (facingMode: 'user') พร้อม 2-stage fallback
@@ -103,6 +114,9 @@ export function useFaceLivenessScanner({
       stopActiveStream();
       setStatus("initializing");
       setErrorInfo(null);
+
+      // เริ่มโหลดโมเดล MediaPipe FaceLandmarker แบบ Asynchronous เบื้องหลัง
+      void initializeFaceLandmarker();
 
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
         const err = CAMERA_ERROR_CATALOG.not_found;
@@ -198,6 +212,7 @@ export function useFaceLivenessScanner({
     setErrorInfo(null);
     setCurrentStepIndex(0);
     setStepSecondsLeft(stepTimeoutSeconds);
+    compliantFramesCountRef.current = 0;
     const newChallenge = generateServerChallenge();
     setChallenge(newChallenge);
 
@@ -211,10 +226,28 @@ export function useFaceLivenessScanner({
   // ยืนยันผ่านขั้นตอนปัจจุบันและคำนวณเวกเตอร์ชีวมิติ
   const completeCurrentStep = useCallback(() => {
     setErrorInfo(null);
-    const embedding = extract128dEmbeddingFromPose(currentPose, challenge.nonce);
+    compliantFramesCountRef.current = 0;
 
-    // จำลองมุม Yaw ที่ถูกต้องตามท่านั้น ๆ
-    const capturedYaw = currentPose === "center" ? 0 : currentPose === "left" ? -28 : 28;
+    // คำนวณเวกเตอร์ 128 มิติจาก MediaPipe Landmarks หรือ Pose Math (Zero Image Retention)
+    let embedding: number[];
+    if (latestLandmarksRef.current && latestLandmarksRef.current.length >= 100) {
+      embedding = extractEmbeddingFromLandmarks(
+        latestLandmarksRef.current,
+        currentPose,
+        challenge.nonce
+      );
+    } else {
+      embedding = extract128dEmbeddingFromPose(currentPose, challenge.nonce);
+    }
+
+    const capturedYaw =
+      qualityMetrics.yawAngle !== 0
+        ? qualityMetrics.yawAngle
+        : currentPose === "center"
+        ? 0
+        : currentPose === "left"
+        ? -28
+        : 28;
 
     const payload: BiometricVerificationPayload = {
       challengeNonce: challenge.nonce,
@@ -264,6 +297,68 @@ export function useFaceLivenessScanner({
     onAllStepsComplete,
     isMuted,
   ]);
+
+  // MediaPipe FaceLandmarker Detection Loop (ตรวจจับใบหน้าและมุม Yaw แบบ Real-time)
+  useEffect(() => {
+    if (status !== "scanning" || isSimulatedMode) return undefined;
+
+    let isRunning = true;
+    let detectionTimer: NodeJS.Timeout | null = null;
+
+    const runDetectionTick = () => {
+      if (!isRunning) return;
+
+      const video = videoRef.current;
+      if (video && video.readyState >= 2 && !video.paused) {
+        const result = detectFaceLandmarksFromVideo(video, performance.now());
+
+        if (result.faceDetected && result.landmarks) {
+          latestLandmarksRef.current = result.landmarks;
+
+          // ตรวจสอบกรณีมีมากกว่า 1 ใบหน้าในเฟรม
+          if (result.facesCount > 1) {
+            triggerSpecificError("multiple_faces");
+            return;
+          }
+
+          // อัปเดตเมตริกคุณภาพใบหน้าแบบเรียลไทม์
+          setQualityMetrics((prev) => ({
+            ...prev,
+            facesDetected: result.facesCount,
+            yawAngle: result.yaw,
+            pitchAngle: result.pitch,
+            rollAngle: result.roll,
+            faceSizeRatio: result.faceSizeRatio,
+            isAcceptable: result.faceSizeRatio >= 0.18 && result.faceSizeRatio <= 0.75,
+          }));
+
+          // ตรวจสอบความสอดคล้องของมุม Yaw ตามท่าปัจจุบัน
+          const compliance = checkPoseYawCompliance(currentPose, result.yaw);
+
+          if (compliance.isCompliant) {
+            compliantFramesCountRef.current += 1;
+            // เมื่อรักษาท่าทางได้ถูกต้องต่อเนื่อง 4 รอบ (~600ms) ให้ผ่านขั้นตอนนี้โดยอัตโนมัติ
+            if (compliantFramesCountRef.current >= 4) {
+              compliantFramesCountRef.current = 0;
+              completeCurrentStep();
+              return;
+            }
+          } else {
+            compliantFramesCountRef.current = Math.max(0, compliantFramesCountRef.current - 1);
+          }
+        }
+      }
+
+      detectionTimer = setTimeout(runDetectionTick, 150);
+    };
+
+    runDetectionTick();
+
+    return () => {
+      isRunning = false;
+      if (detectionTimer) clearTimeout(detectionTimer);
+    };
+  }, [status, isSimulatedMode, currentPose, triggerSpecificError, completeCurrentStep]);
 
   // เสียงพูดนำทางตามแต่ละขั้นตอน
   useEffect(() => {
