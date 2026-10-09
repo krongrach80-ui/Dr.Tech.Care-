@@ -1,0 +1,4 @@
+:HL["/Dr.Tech.Care-/_next/static/chunks/1g4m12ykyxzz2.css","style"]
+2:[["children",{"s":"__PAGE__","h":160}]]
+1:[["children",{"s":"/_not-found","h":96,"c":"$Q2"}]]
+0:{"b":"utOKNGKWXBovEqjsvCM1W","t":{"t":{"s":"","h":80,"c":"$Q1"}}}

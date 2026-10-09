@@ -1,0 +1,7 @@
+:HL["/Dr.Tech.Care-/_next/static/chunks/1g4m12ykyxzz2.css","style"]
+:HL["/Dr.Tech.Care-/_next/static/media/bfd813093b8ca1bb-s.p.3ok2djvs6w93k.woff2","font",{"crossOrigin":"","type":"font/woff2"}]
+:HL["/Dr.Tech.Care-/_next/static/media/f304c3cf3765fb5f-s.p.0h0-3wqrkgcb1.woff2","font",{"crossOrigin":"","type":"font/woff2"}]
+3:[["children",{"s":"__PAGE__","h":160}]]
+2:[["children",{"s":"overview","h":96,"c":"$Q3"}]]
+1:[["children",{"s":"staff","h":96,"c":"$Q2"}]]
+0:{"b":"utOKNGKWXBovEqjsvCM1W","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
