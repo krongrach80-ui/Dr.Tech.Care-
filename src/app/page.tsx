@@ -28,6 +28,7 @@ import { CameraMirror } from "@/components/kiosk/CameraMirror";
 import { PatientDashboard } from "@/components/kiosk/PatientDashboard";
 import { formatThaiDate, maskName } from "@/lib/thai";
 import { resetKioskState } from "@/lib/kiosk";
+import { generateServerChallenge, type ServerChallenge, type LivenessPose } from "@/lib/biometrics";
 
 function subscribeOnline(callback: () => void) {
   window.addEventListener("online", callback);
@@ -95,9 +96,11 @@ export default function KioskPage() {
   const [regAge, setRegAge] = useState("68");
   const [activeInput, setActiveInput] = useState<"none" | "firstName" | "lastName" | "age">("none");
 
-  // Login & Registration Liveness Challenge Step (center -> left -> right)
-  const [loginLivenessStep, setLoginLivenessStep] = useState<"center" | "left" | "right">("center");
-  const [regLivenessStep, setRegLivenessStep] = useState<"center" | "left" | "right">("center");
+  // Login & Registration Liveness Challenge Step with Server Challenge (Nonce + Randomized sequence)
+  const [loginChallenge, setLoginChallenge] = useState<ServerChallenge>(() => generateServerChallenge());
+  const [regChallenge, setRegChallenge] = useState<ServerChallenge>(() => generateServerChallenge());
+  const [loginLivenessStep, setLoginLivenessStep] = useState<LivenessPose>("center");
+  const [regLivenessStep, setRegLivenessStep] = useState<LivenessPose>("center");
   const [speechEnabled, setSpeechEnabled] = useState(true);
 
   // Daily Exercise State
@@ -116,8 +119,12 @@ export default function KioskPage() {
     setCountdown(0);
     setExerciseReps(0);
     setSelectedQuizAnswer(null);
-    setLoginLivenessStep("center");
-    setRegLivenessStep("center");
+    const freshLoginChallenge = generateServerChallenge();
+    const freshRegChallenge = generateServerChallenge();
+    setLoginChallenge(freshLoginChallenge);
+    setRegChallenge(freshRegChallenge);
+    setLoginLivenessStep(freshLoginChallenge.sequence[0]);
+    setRegLivenessStep(freshRegChallenge.sequence[0]);
     resetKioskState({ redirectToHome: false });
   };
 
@@ -344,7 +351,9 @@ export default function KioskPage() {
                   variant="strong-primary"
                   className="!min-h-[58px] !text-base"
                   onClick={() => {
-                    setLoginLivenessStep("center");
+                    const fresh = generateServerChallenge();
+                    setLoginChallenge(fresh);
+                    setLoginLivenessStep(fresh.sequence[0]);
                     transitionTo("login_face_scan");
                   }}
                   icon={<CheckCircle2 className="w-5 h-5" />}
@@ -394,88 +403,98 @@ export default function KioskPage() {
 
               {/* Liveness 3-Step Progress Indicators */}
               <div className="flex items-center gap-2 my-2.5">
-                <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                  loginLivenessStep === "center"
-                    ? "bg-[#1E8A4C] text-white shadow-sm ring-2 ring-[#1E8A4C]/30"
-                    : "bg-emerald-100 text-[#1E8A4C]"
-                }`}>
-                  <span>1. มองตรง</span>
-                  {loginLivenessStep !== "center" && <CheckCircle2 className="w-3.5 h-3.5 inline ml-0.5" />}
-                </div>
+                {loginChallenge.sequence.map((pose, idx) => {
+                  const stepNum = idx + 1;
+                  const isCurrent = loginLivenessStep === pose;
+                  const isPast =
+                    (loginLivenessStep === loginChallenge.sequence[1] && idx === 0) ||
+                    (loginLivenessStep === loginChallenge.sequence[2] && idx < 2);
+                  const label =
+                    pose === "center" ? "มองตรง" : pose === "left" ? "หันซ้าย" : "หันขวา";
 
-                <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                  loginLivenessStep === "left"
-                    ? "bg-[#1E8A4C] text-white shadow-sm ring-2 ring-[#1E8A4C]/30"
-                    : loginLivenessStep === "right"
-                    ? "bg-emerald-100 text-[#1E8A4C]"
-                    : "bg-slate-200/70 text-[#536E80]"
-                }`}>
-                  <span>2. หันซ้าย</span>
-                  {loginLivenessStep === "right" && <CheckCircle2 className="w-3.5 h-3.5 inline ml-0.5" />}
-                </div>
-
-                <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                  loginLivenessStep === "right"
-                    ? "bg-[#1E8A4C] text-white shadow-sm ring-2 ring-[#1E8A4C]/30"
-                    : "bg-slate-200/70 text-[#536E80]"
-                }`}>
-                  <span>3. หันขวา</span>
-                </div>
+                  return (
+                    <div
+                      key={`${pose}-${idx}`}
+                      className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                        isCurrent
+                          ? "bg-[#1E8A4C] text-white shadow-sm ring-2 ring-[#1E8A4C]/30"
+                          : isPast
+                          ? "bg-emerald-100 text-[#1E8A4C]"
+                          : "bg-slate-200/70 text-[#536E80]"
+                      }`}
+                    >
+                      <span>{stepNum}. {label}</span>
+                      {isPast && <CheckCircle2 className="w-3.5 h-3.5 inline ml-0.5" />}
+                    </div>
+                  );
+                })}
               </div>
 
               {/* ข้อความบอกผู้ใช้ในขั้นตอนนี้ */}
               <p className="text-xs sm:text-sm font-semibold text-[#1E8A4C] mb-2 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200/60">
                 {loginLivenessStep === "center" && "👉 ขั้นที่ 1/3: นั่งตรง มองที่กล้องด้านบน"}
-                {loginLivenessStep === "left" && "👉 ขั้นที่ 2/3: หันหน้าไปทางซ้ายของท่านช้า ๆ"}
-                {loginLivenessStep === "right" && "👉 ขั้นที่ 3/3: หันหน้าไปทางขวาของท่านช้า ๆ"}
+                {loginLivenessStep === "left" && "👉 หันหน้าไปทางซ้ายของท่านช้า ๆ"}
+                {loginLivenessStep === "right" && "👉 หันหน้าไปทางขวาของท่านช้า ๆ"}
               </p>
 
               {/* กรอบกล้องสแกนใบหน้าพร้อม Error Handling และโหมดจำลอง */}
               <div className="w-full h-64 sm:h-72 rounded-3xl overflow-hidden shadow-xl border-3 border-[#1E8A4C]/30 bg-slate-900 relative flex-shrink-0">
                 <CameraMirror
                   isScanning={true}
-                  currentStep={loginLivenessStep === "center" ? 1 : loginLivenessStep === "left" ? 2 : 3}
+                  challenge={loginChallenge}
+                  currentStep={
+                    loginLivenessStep === loginChallenge.sequence[0]
+                      ? 1
+                      : loginLivenessStep === loginChallenge.sequence[1]
+                      ? 2
+                      : 3
+                  }
                   totalSteps={3}
                   speechEnabled={speechEnabled}
                   onToggleSpeech={() => setSpeechEnabled((prev) => !prev)}
-                  onRestartScan={() => setLoginLivenessStep("center")}
+                  onRestartScan={() => {
+                    const fresh = generateServerChallenge();
+                    setLoginChallenge(fresh);
+                    setLoginLivenessStep(fresh.sequence[0]);
+                  }}
                   onCancelScan={handleFullReset}
-                  scanTitle={
-                    loginLivenessStep === "center"
-                      ? "กรุณามองตรงที่กล้อง"
-                      : loginLivenessStep === "left"
-                      ? "หันหน้าไปทางซ้ายช้า ๆ"
-                      : "หันหน้าไปทางขวาช้า ๆ"
-                  }
+                  onStepComplete={(step) => {
+                    if (step === 1) setLoginLivenessStep(loginChallenge.sequence[1]);
+                    else if (step === 2) setLoginLivenessStep(loginChallenge.sequence[2]);
+                    else transitionTo("login_confirm");
+                  }}
+                  onAllStepsComplete={() => {
+                    transitionTo("login_confirm");
+                  }}
                   className="w-full h-full"
                 />
               </div>
 
               {/* ปุ่มควบคุมขั้นตอน Liveness */}
               <div className="w-full flex flex-col gap-2 mt-3">
-                {loginLivenessStep === "center" && (
+                {loginLivenessStep === loginChallenge.sequence[0] && (
                   <BigButton
                     variant="strong-primary"
                     className="!min-h-[58px] !text-base"
-                    onClick={() => setLoginLivenessStep("left")}
+                    onClick={() => setLoginLivenessStep(loginChallenge.sequence[1])}
                     icon={<CheckCircle2 className="w-5 h-5" />}
                   >
-                    มองตรงแล้ว (ไปขั้นที่ 2 หันซ้าย)
+                    มองตรงแล้ว (ไปขั้นที่ 2 {loginChallenge.sequence[1] === "left" ? "หันซ้าย" : "หันขวา"})
                   </BigButton>
                 )}
 
-                {loginLivenessStep === "left" && (
+                {loginLivenessStep === loginChallenge.sequence[1] && (
                   <BigButton
                     variant="strong-primary"
                     className="!min-h-[58px] !text-base"
-                    onClick={() => setLoginLivenessStep("right")}
+                    onClick={() => setLoginLivenessStep(loginChallenge.sequence[2])}
                     icon={<CheckCircle2 className="w-5 h-5" />}
                   >
-                    หันซ้ายแล้ว (ไปขั้นที่ 3 หันขวา)
+                    {loginChallenge.sequence[1] === "left" ? "หันซ้ายแล้ว" : "หันขวาแล้ว"} (ไปขั้นที่ 3 {loginChallenge.sequence[2] === "right" ? "หันขวา" : "หันซ้าย"})
                   </BigButton>
                 )}
 
-                {loginLivenessStep === "right" && (
+                {loginLivenessStep === loginChallenge.sequence[2] && (
                   <BigButton
                     variant="strong-primary"
                     className="!min-h-[58px] !text-base"
@@ -485,6 +504,7 @@ export default function KioskPage() {
                     สแกนครบ 3 มุม (ตรวจสอบข้อมูล)
                   </BigButton>
                 )}
+
 
                 {/* ปุ่มจำลองเข้าระบบด่วน / ปุ่มเริ่มใหม่ */}
                 <div className="flex items-center gap-2 mt-1">
@@ -722,42 +742,56 @@ export default function KioskPage() {
               <div className="w-full h-56 sm:h-64 rounded-3xl overflow-hidden shadow-xl border-3 border-[#1E8A4C]/30 bg-slate-900 relative flex-shrink-0">
                 <CameraMirror
                   isScanning={true}
-                  currentStep={regLivenessStep === "center" ? 1 : regLivenessStep === "left" ? 2 : 3}
-                  totalSteps={3}
-                  onRestartScan={() => setRegLivenessStep("center")}
-                  onCancelScan={handleFullReset}
-                  scanTitle={
-                    regLivenessStep === "center"
-                      ? "กรุณามองตรงที่กล้อง"
-                      : regLivenessStep === "left"
-                      ? "หันหน้าไปทางซ้ายช้าๆ"
-                      : "หันหน้าไปทางขวาช้าๆ"
+                  challenge={regChallenge}
+                  currentStep={
+                    regLivenessStep === regChallenge.sequence[0]
+                      ? 1
+                      : regLivenessStep === regChallenge.sequence[1]
+                      ? 2
+                      : 3
                   }
+                  totalSteps={3}
+                  speechEnabled={speechEnabled}
+                  onToggleSpeech={() => setSpeechEnabled((prev) => !prev)}
+                  onRestartScan={() => {
+                    const fresh = generateServerChallenge();
+                    setRegChallenge(fresh);
+                    setRegLivenessStep(fresh.sequence[0]);
+                  }}
+                  onCancelScan={handleFullReset}
+                  onStepComplete={(step) => {
+                    if (step === 1) setRegLivenessStep(regChallenge.sequence[1]);
+                    else if (step === 2) setRegLivenessStep(regChallenge.sequence[2]);
+                    else transitionTo("register_form");
+                  }}
+                  onAllStepsComplete={() => {
+                    transitionTo("register_form");
+                  }}
                   className="w-full h-full"
                 />
               </div>
 
               {/* ปุ่มบันทึกแต่ละมุม */}
               <div className="w-full flex flex-col gap-2 mt-3">
-                {regLivenessStep === "center" && (
+                {regLivenessStep === regChallenge.sequence[0] && (
                   <BigButton
                     variant="strong-primary"
                     className="!min-h-[58px] !text-base"
-                    onClick={() => setRegLivenessStep("left")}
+                    onClick={() => setRegLivenessStep(regChallenge.sequence[1])}
                   >
-                    ถ่ายภาพมองตรง (ไปขั้นที่ 2)
+                    ถ่ายภาพมองตรง (ไปขั้นที่ 2 {regChallenge.sequence[1] === "left" ? "หันซ้าย" : "หันขวา"})
                   </BigButton>
                 )}
-                {regLivenessStep === "left" && (
+                {regLivenessStep === regChallenge.sequence[1] && (
                   <BigButton
                     variant="strong-primary"
                     className="!min-h-[58px] !text-base"
-                    onClick={() => setRegLivenessStep("right")}
+                    onClick={() => setRegLivenessStep(regChallenge.sequence[2])}
                   >
-                    ถ่ายภาพหันซ้าย (ไปขั้นที่ 3)
+                    ถ่ายภาพ{regChallenge.sequence[1] === "left" ? "หันซ้าย" : "หันขวา"} (ไปขั้นที่ 3 {regChallenge.sequence[2] === "right" ? "หันขวา" : "หันซ้าย"})
                   </BigButton>
                 )}
-                {regLivenessStep === "right" && (
+                {regLivenessStep === regChallenge.sequence[2] && (
                   <BigButton
                     variant="strong-primary"
                     className="!min-h-[58px] !text-base"
