@@ -359,3 +359,118 @@ export function verifyBiometricSubmission(
   };
 }
 
+/**
+ * ผลลัพธ์การตัดสินอัตลักษณ์ชีวมิติใบหน้า
+ * กฎเหล็กความปลอดภัย: ห้ามส่งค่า distance หรือ embedding กลับไปยัง client เด็ดขาด
+ */
+export type IdentityDecisionOutcome = "match" | "ambiguous" | "no_match" | "inconsistent";
+
+export interface IdentityCandidate {
+  profileId: string;
+  distance: number;
+  fullName?: string;
+  hn?: string;
+}
+
+export interface IdentityDecisionResult {
+  outcome: IdentityDecisionOutcome;
+  profileId: string | null;
+  candidateProfileIds?: string[];
+  message: string;
+}
+
+export interface DecideIdentityOptions {
+  matchThreshold?: number; // เกณฑ์ระยะห่างสูงสุดที่ถือว่าตรงกัน (ค่าปกติ: 0.40)
+  ambiguousDelta?: number; // ผลต่างขั้นต่ำระหว่างอันดับ 1 และอันดับ 2 (ค่าปกติ: 0.05)
+}
+
+/**
+ * ระบบตัดสินอัตลักษณ์ชีวมิติใบหน้า (Biometric Decision Engine)
+ * ประเมิน candidate จากการค้นหา Vector Database
+ * 
+ * 1. match: อันดับ 1 ผ่านเกณฑ์ และห่างจากอันดับ 2 เกิน ambiguousDelta
+ * 2. ambiguous: อันดับ 1 ผ่านเกณฑ์ แต่ห่างจากอันดับ 2 น้อยกว่า ambiguousDelta (ใบหน้าคล้ายกันเกินไป)
+ * 3. no_match: ไม่มี candidate ใดผ่านเกณฑ์ระยะห่าง
+ * 4. inconsistent: ข้อมูล distance ผิดปกติ (NaN, ติดลบ, หรือ candidate เสียรูป)
+ * 
+ * ข้อกำหนด: ห้ามเปิดเผยค่า distance หรือ cosine similarity กลับ client เพื่อป้องกัน Biometric Inversion Attack
+ */
+export function decideIdentity(
+  candidates: readonly IdentityCandidate[],
+  options: DecideIdentityOptions = {}
+): IdentityDecisionResult {
+  const matchThreshold = options.matchThreshold ?? 0.40;
+  const ambiguousDelta = options.ambiguousDelta ?? 0.05;
+
+  // 1. ตรวจสอบความถูกต้องของข้อมูล (Inconsistent check)
+  for (const c of candidates) {
+    if (
+      !c.profileId ||
+      typeof c.distance !== "number" ||
+      Number.isNaN(c.distance) ||
+      c.distance < 0 ||
+      !Number.isFinite(c.distance)
+    ) {
+      return {
+        outcome: "inconsistent",
+        profileId: null,
+        message: "ข้อมูลชีวมิติของผู้รับการตรวจสอบมีความผิดปกติ ไม่สอดคล้องกัน",
+      };
+    }
+  }
+
+  // 2. กรณีไม่มีผู้สมัครใดเลย
+  if (candidates.length === 0) {
+    return {
+      outcome: "no_match",
+      profileId: null,
+      message: "ไม่พบบัญชีผู้ป่วยที่ตรงกับข้อมูลใบหน้านี้ในระบบ",
+    };
+  }
+
+  // เรียงลำดับจากระยะห่างน้อยที่สุด (ใกล้เคียงที่สุด) ไปมากที่สุด
+  const sorted = [...candidates].sort((a, b) => a.distance - b.distance);
+  const best = sorted[0];
+
+  if (!best) {
+    return {
+      outcome: "no_match",
+      profileId: null,
+      message: "ไม่พบบัญชีผู้ป่วยที่ตรงกับข้อมูลใบหน้านี้ในระบบ",
+    };
+  }
+
+  // 3. ตรวจสอบว่าอันดับ 1 ผ่านเกณฑ์หรือไม่
+  if (best.distance > matchThreshold) {
+    return {
+      outcome: "no_match",
+      profileId: null,
+      message: "ไม่พบบัญชีผู้ป่วยที่ตรงกับข้อมูลใบหน้านี้ในระบบ",
+    };
+  }
+
+  // 4. ตรวจสอบกรณีกำกวม (Ambiguous: มี 2 คนขึ้นไปที่คะแนนใกล้เคียงกันมาก)
+  if (sorted.length > 1) {
+    const secondBest = sorted[1];
+    if (secondBest && secondBest.distance <= matchThreshold) {
+      const delta = secondBest.distance - best.distance;
+      if (delta < ambiguousDelta) {
+        return {
+          outcome: "ambiguous",
+          profileId: null,
+          candidateProfileIds: [best.profileId, secondBest.profileId],
+          message: "ตรวจพบข้อมูลใบหน้าที่ใกล้เคียงกันมากกว่า 1 บัญชี กรุณาติดต่อเจ้าหน้าที่เพื่อยืนยันตัวตน",
+        };
+      }
+    }
+  }
+
+  // 5. ผ่านการตรวจสอบเด็ดขาด (Single Clear Match)
+  return {
+    outcome: "match",
+    profileId: best.profileId,
+    message: "ยืนยันอัตลักษณ์บุคคลสำเร็จ",
+  };
+}
+
+

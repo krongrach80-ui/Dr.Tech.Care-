@@ -4,6 +4,8 @@
  * ต้องเรียก resetKioskState() ตัวเดียวที่ปิดกล้อง, หยุดโมเดล/worker, ล้าง store+sessionStorage+draft, หยุดเสียง และกลับหน้าแรก
  */
 
+import { dispose as disposeMediaPipe } from "@/lib/mediapipe/loader";
+
 export interface ResetKioskOptions {
   redirectToHome?: boolean;
 }
@@ -41,7 +43,14 @@ export function resetKioskState(options: ResetKioskOptions = { redirectToHome: t
     console.warn("Failed to cancel speech synthesis:", err);
   }
 
-  // 3. ล้างสถานะใน sessionStorage และ Local State ชั่วคราว
+  // 3. ปิดและทำลายหน่วยความจำ MediaPipe, FaceLandmarker, PoseLandmarker, และ WASM WebGL ทันที
+  try {
+    disposeMediaPipe();
+  } catch (err) {
+    console.warn("Failed to dispose MediaPipe instances:", err);
+  }
+
+  // 4. ล้างสถานะใน sessionStorage และ Local State ชั่วคราว
   try {
     sessionStorage.clear();
   } catch (err) {

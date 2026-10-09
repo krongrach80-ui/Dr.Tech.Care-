@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { Lock, Shield, Stethoscope, ArrowLeft, LogIn, ShieldCheck, KeyRound } from "lucide-react";
 import { BigButton } from "@/components/kiosk/BigButton";
 
+import { staffLoginSchema } from "@/lib/schemas/staff";
+import {
+  checkLoginRateLimit,
+  recordFailedLoginAttempt,
+  resetLoginAttempts,
+} from "@/lib/rateLimit";
+
 export default function StaffLoginPage() {
   const router = useRouter();
   const [role, setRole] = useState<"director" | "physio">("director");
@@ -28,17 +35,55 @@ export default function StaffLoginPage() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || !password.trim()) {
-      setError("กรุณากรอกชื่อผู้ใช้และรหัสผ่าน");
+    setError(null);
+
+    // 1. ตรวจสอบ Rate Limit และ Lockout
+    const rateStatus = checkLoginRateLimit(username.trim().toLowerCase());
+    if (!rateStatus.isAllowed) {
+      setError("บัญชีถูกระงับชั่วคราวเนื่องจากพยายามเข้าสู่ระบบผิดเกิน 5 ครั้ง กรุณารอ 15 นาที");
       return;
     }
-    // บันทึก Session จำลองใน sessionStorage
+
+    // 2. ตรวจสอบ Input ผ่าน Zod Schema
+    const parseResult = staffLoginSchema.safeParse({
+      role,
+      username: username.trim().toLowerCase(),
+      password,
+    });
+
+    if (!parseResult.success) {
+      recordFailedLoginAttempt(username.trim().toLowerCase());
+      // กฎความปลอดภัย: ข้อความผิดพลาดต้องเหมือนกันทุกกรณี เพื่อป้องกัน User Enumeration
+      setError("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
+      return;
+    }
+
+    // 3. ตรวจสอบ Credentials (จำลองสำหรับ Demo / Seed Users)
+    const isValidDirector =
+      role === "director" &&
+      username.trim().toLowerCase() === "director.admin" &&
+      password === "Director1234!";
+
+    const isValidPhysio =
+      role === "physio" &&
+      username.trim().toLowerCase() === "physio.somchai" &&
+      password === "Physio1234!";
+
+    if (!isValidDirector && !isValidPhysio) {
+      recordFailedLoginAttempt(username.trim().toLowerCase());
+      setError("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
+      return;
+    }
+
+    // เข้าสู่ระบบสำเร็จ: ล้างจำนวนครั้งที่ผิด และบันทึก Session
+    resetLoginAttempts(username.trim().toLowerCase());
     if (typeof window !== "undefined") {
       sessionStorage.setItem("staff_role", role);
-      sessionStorage.setItem("staff_username", username);
+      sessionStorage.setItem("staff_username", username.trim().toLowerCase());
     }
     router.push("/staff/overview");
   };
+
 
   return (
     <div className="min-h-screen kiosk-aurora-bg text-[#0B2B2B] flex items-center justify-center p-4 sm:p-6 select-none">

@@ -29,20 +29,29 @@ interface FailedScanLog {
   device: string;
 }
 
+import { parseStaffSession } from "@/lib/schemas/staff";
+
 export default function StaffOverviewPage() {
   const router = useRouter();
 
   const [role, setRole] = useState<AppRole>(() => {
     if (typeof window !== "undefined") {
-      const saved = sessionStorage.getItem("staff_role") as AppRole | null;
-      if (saved === "director" || saved === "physio") return saved;
+      const parsed = parseStaffSession(
+        sessionStorage.getItem("staff_role"),
+        sessionStorage.getItem("staff_username")
+      );
+      if (parsed) return parsed.role;
     }
     return "director";
   });
 
   const [username, setUsername] = useState<string>(() => {
     if (typeof window !== "undefined") {
-      return sessionStorage.getItem("staff_username") ?? "director.admin";
+      const parsed = parseStaffSession(
+        sessionStorage.getItem("staff_role"),
+        sessionStorage.getItem("staff_username")
+      );
+      if (parsed) return parsed.username;
     }
     return "director.admin";
   });

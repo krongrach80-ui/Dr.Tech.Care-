@@ -6,7 +6,6 @@ import {
   Activity,
   ScanFace,
   UserPlus,
-  Lock,
   ChevronLeft,
   CheckCircle2,
   HeartPulse,
@@ -26,6 +25,7 @@ import { ThaiKeyboard } from "@/components/kiosk/ThaiKeyboard";
 import { NumPad } from "@/components/kiosk/NumPad";
 import { CameraMirror } from "@/components/kiosk/CameraMirror";
 import { PatientDashboard } from "@/components/kiosk/PatientDashboard";
+import { StaffTrigger } from "@/components/kiosk/StaffTrigger";
 import { formatThaiDate, maskName } from "@/lib/thai";
 import { resetKioskState } from "@/lib/kiosk";
 import { generateServerChallenge, type ServerChallenge, type LivenessPose } from "@/lib/biometrics";
@@ -220,10 +220,10 @@ export default function KioskPage() {
                 กรุณาเลือกรายการด้านล่างเพื่อเริ่มต้นการฝึก
               </p>
 
-              {/* ส่วนปุ่มใหญ่ 2 ปุ่ม (สูง >= 68-74px เว้นระยะห่างชัดเจน 20px) */}
+              {/* ส่วนปุ่มใหญ่ 2 ปุ่ม (สูง >= 96px สำหรับผู้สูงอายุตามเกณฑ์ Ergonomics) */}
               <div className="w-full flex flex-col gap-4 sm:gap-5 mt-6 sm:mt-7">
                 
-                {/* ปุ่มหลัก: สแกนใบหน้าเพื่อเข้าสู่ระบบ */}
+                {/* ปุ่มหลัก: สแกนใบหน้าเพื่อเข้าสู่ระบบ (Touch target >= 96px) */}
                 <button
                   type="button"
                   onClick={() => {
@@ -231,54 +231,54 @@ export default function KioskPage() {
                     transitionTo("login_consent");
                   }}
                   className="
-                    w-full min-h-[68px] sm:min-h-[74px] px-5 py-3
-                    rounded-2xl
+                    w-full min-h-[96px] px-6 py-4
+                    rounded-3xl
                     bg-[#1E8A4C] hover:bg-[#17733E] active:bg-[#125C31]
                     text-white font-bold
-                    shadow-lg shadow-[#1E8A4C]/20
-                    border border-[#156337]/50
-                    flex items-center gap-3.5
+                    shadow-xl shadow-[#1E8A4C]/25
+                    border-2 border-[#156337]/50
+                    flex items-center gap-4
                     transition-all duration-150 active:scale-[0.98]
                     cursor-pointer text-left
                   "
                 >
-                  <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-                    <ScanFace className="w-6 h-6 text-white stroke-[2.5]" />
+                  <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center flex-shrink-0">
+                    <ScanFace className="w-8 h-8 text-white stroke-[2.5]" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-lg sm:text-xl font-extrabold tracking-tight">
+                    <span className="text-xl sm:text-[24px] font-extrabold tracking-tight">
                       สแกนใบหน้าเพื่อเข้าสู่ระบบ
                     </span>
-                    <span className="text-xs font-medium text-emerald-100">
+                    <span className="text-xs sm:text-sm font-medium text-emerald-100 mt-0.5">
                       สำหรับผู้ป่วยเดิมที่มีข้อมูลในระบบ
                     </span>
                   </div>
                 </button>
 
-                {/* ปุ่มรอง: สมัครบัญชีใหม่ */}
+                {/* ปุ่มรอง: สมัครบัญชีใหม่ (Touch target >= 96px) */}
                 <button
                   type="button"
                   onClick={() => transitionTo("register_consent")}
                   className="
-                    w-full min-h-[68px] sm:min-h-[74px] px-5 py-3
-                    rounded-2xl
+                    w-full min-h-[96px] px-6 py-4
+                    rounded-3xl
                     bg-[#6FD67F] hover:bg-[#5EC76E] active:bg-[#4DB25D]
                     text-[#0B2B2B] font-bold
-                    shadow-lg shadow-[#6FD67F]/25
-                    border border-[#4EA85D]/40
-                    flex items-center gap-3.5
+                    shadow-xl shadow-[#6FD67F]/25
+                    border-2 border-[#4EA85D]/40
+                    flex items-center gap-4
                     transition-all duration-150 active:scale-[0.98]
                     cursor-pointer text-left
                   "
                 >
-                  <div className="w-11 h-11 rounded-xl bg-[#0B2B2B]/10 flex items-center justify-center flex-shrink-0">
-                    <UserPlus className="w-6 h-6 text-[#0B2B2B] stroke-[2.5]" />
+                  <div className="w-14 h-14 rounded-2xl bg-[#0B2B2B]/10 flex items-center justify-center flex-shrink-0">
+                    <UserPlus className="w-8 h-8 text-[#0B2B2B] stroke-[2.5]" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-lg sm:text-xl font-extrabold tracking-tight text-[#0B2B2B]">
+                    <span className="text-xl sm:text-[24px] font-extrabold tracking-tight text-[#0B2B2B]">
                       สมัครบัญชีใหม่
                     </span>
-                    <span className="text-xs font-semibold text-[#1A452C]">
+                    <span className="text-xs sm:text-sm font-semibold text-[#1A452C] mt-0.5">
                       สำหรับผู้รับบริการครั้งแรก
                     </span>
                   </div>
@@ -286,22 +286,9 @@ export default function KioskPage() {
               </div>
             </div>
 
-            {/* ส่วนด้านล่างสุด: ปุ่มเล็ก “สำหรับบุคลากร” */}
+            {/* ส่วนด้านล่างสุด: ปุ่มบุคลากรต้องกดค้าง 1.5 วินาทีเพื่อเข้าสู่ระบบ (StaffTrigger) */}
             <div className="w-full flex flex-col items-center pt-3 pb-1 flex-shrink-0">
-              <button
-                type="button"
-                onClick={() => router.push("/staff/login")}
-                className="
-                  px-4 py-2 rounded-full
-                  bg-white hover:bg-emerald-50 text-[#0B2B2B]
-                  border border-[#0B2B2B]/20 shadow-sm
-                  text-xs sm:text-sm font-medium flex items-center gap-2
-                  cursor-pointer active:scale-95 transition-all
-                "
-              >
-                <Lock className="w-3.5 h-3.5 text-[#3D5A5A]" />
-                <span>สำหรับบุคลากร</span>
-              </button>
+              <StaffTrigger holdDurationMs={1500} />
 
               <p className="text-[11px] text-[#527070] font-medium text-center mt-2">
                 เครื่องมือช่วยการฝึกฟื้นฟูทางกายภาพบำบัด ไม่ใช่การวินิจฉัยโรค
@@ -1214,12 +1201,12 @@ export default function KioskPage() {
                 แตะเลือกคำตอบที่ถูกต้อง 1 ข้อ
               </p>
 
-              {/* ตัวเลือกคำถาม */}
+              {/* ตัวเลือกคำถาม (ห้ามส่งข้อมูลเฉลย isCorrect มาฝั่ง client) */}
               <div className="w-full flex flex-col gap-2.5">
                 {[
-                  { id: 1, label: "ก. ส้มและฝรั่ง", isCorrect: true },
-                  { id: 2, label: "ข. มันฝรั่งทอด", isCorrect: false },
-                  { id: 3, label: "ค. ลูกอมรสหวาน", isCorrect: false },
+                  { id: 1, label: "ก. ส้มและฝรั่ง" },
+                  { id: 2, label: "ข. มันฝรั่งทอด" },
+                  { id: 3, label: "ค. ลูกอมรสหวาน" },
                 ].map((choice) => (
                   <button
                     key={choice.id}

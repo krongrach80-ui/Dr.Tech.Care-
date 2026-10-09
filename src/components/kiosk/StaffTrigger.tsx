@@ -68,12 +68,12 @@ export function StaffTrigger({
     <div className={`relative inline-block ${className}`}>
       <button
         type="button"
-        onClick={() => router.push("/staff/login")}
+        onClick={(e) => e.preventDefault()}
         onPointerDown={handlePointerDown}
         onPointerUp={clearHold}
         onPointerLeave={clearHold}
         onPointerCancel={clearHold}
-        aria-label="สำหรับบุคลากร แตะเพื่อเข้าสู่ระบบ"
+        aria-label="สำหรับบุคลากร กดค้าง 1.5 วินาทีเพื่อเข้าสู่ระบบ"
         className="
           relative overflow-hidden
           px-5 py-2.5 rounded-full
