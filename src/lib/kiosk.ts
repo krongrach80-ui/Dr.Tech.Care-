@@ -56,8 +56,8 @@ export function resetKioskState(options: ResetKioskOptions = { redirectToHome: t
     // no-op
   }
 
-  // 5. นำทางกลับหน้าแรก (/)
+  // 5. นำทางกลับหน้าแรก (/) โดยล้างประวัติการนำทาง (Kiosk hardening)
   if (options.redirectToHome !== false) {
-    window.location.href = "/";
+    window.location.replace("/");
   }
 }

@@ -87,6 +87,42 @@ describe("Table-Driven RBAC Permission Matrix (Section 1.2)", () => {
     });
   });
 
+  // 3.1 แก้ไขข้อมูลผู้ใช้และรีเซ็ตรหัสผ่าน (canEditUser)
+  describe("Resource: User Editing Matrix (canEditUser)", () => {
+    it("allows director to edit any user", () => {
+      const ctx = { actorId: "dir-1", actorRole: "director" as const, targetUserId: "physio-1" };
+      expect(canEditUser(ctx, "physio")).toBe(true);
+    });
+
+    it("allows physio to edit self", () => {
+      const ctx = { actorId: "physio-1", actorRole: "physio" as const, targetUserId: "physio-1" };
+      expect(canEditUser(ctx, "physio")).toBe(true);
+    });
+
+    it("allows physio to edit patient in scope and denies other physio", () => {
+      const ctxPatient = {
+        actorId: "physio-1",
+        actorRole: "physio" as const,
+        targetUserId: "pat-1",
+        physioScope: "all" as const,
+      };
+      expect(canEditUser(ctxPatient, "patient")).toBe(true);
+
+      const ctxOtherPhysio = {
+        actorId: "physio-1",
+        actorRole: "physio" as const,
+        targetUserId: "physio-2",
+      };
+      expect(canEditUser(ctxOtherPhysio, "physio")).toBe(false);
+    });
+
+    it("verifies canPhysioAccessPatient standalone helper directly", () => {
+      expect(canPhysioAccessPatient("p1", "all", "p2")).toBe(true);
+      expect(canPhysioAccessPatient("p1", "own", "p1")).toBe(true);
+      expect(canPhysioAccessPatient("p1", "own", "p2")).toBe(false);
+    });
+  });
+
   // 4. ข้อมูลคนไข้: ดูและแก้ไข ตาม physio_scope ('all' และ 'own')
   describe("Resource: Patients Access Matrix with physio_scope (all vs own)", () => {
     const patientAccessCases: Array<{
