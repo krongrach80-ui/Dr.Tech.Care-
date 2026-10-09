@@ -76,21 +76,21 @@ export function StaffTrigger({
         aria-label="สำหรับบุคลากร แตะเพื่อเข้าสู่ระบบ"
         className="
           relative overflow-hidden
-          px-4 py-2.5 rounded-full
-          bg-white/90 hover:bg-white text-[#1F3A4D]
-          border border-[#1F3A4D]/20 shadow-sm
+          px-5 py-2.5 rounded-full
+          bg-white/95 hover:bg-white text-[#0B2B2B]
+          border border-[#0B2B2B]/20 shadow-sm
           text-sm font-medium flex items-center gap-2
           cursor-pointer select-none
           active:scale-95 transition-transform
         "
       >
-        <Lock className="w-4 h-4 text-[#1F3A4D]/70" />
+        <Lock className="w-4 h-4 text-[#0B2B2B]/70" />
         <span className="text-sm font-medium">สำหรับบุคลากร</span>
 
         {/* Progress Fill bar when holding */}
         {holding && (
           <div
-            className="absolute bottom-0 left-0 h-1 bg-[#3F7FD0] transition-all duration-75"
+            className="absolute bottom-0 left-0 h-1 bg-[#1E8A4C] transition-all duration-75"
             style={{ width: `${progress}%` }}
           />
         )}
@@ -98,7 +98,7 @@ export function StaffTrigger({
 
       {/* Floating Tooltip when holding */}
       {holding && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#1F3A4D] text-white text-xs px-3 py-1.5 rounded-lg shadow-lg">
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#0B2B2B] text-white text-xs px-3 py-1.5 rounded-lg shadow-lg">
           กดค้างไว้เพื่อเข้าสู่ระบบเจ้าหน้าที่ ({Math.round(progress)}%)
         </div>
       )}

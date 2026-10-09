@@ -72,7 +72,7 @@ export function KioskShell({
       <div
         className={`
           relative h-[94vh] max-h-[1920px] w-auto aspect-[9/16] max-w-[100vw]
-          bg-[linear-gradient(180deg,#E8F8F1_0%,#FFFFFF_50%,#E4F0FC_100%)]
+          bg-[#F4FBF7] text-[#0B2B2B]
           shadow-2xl overflow-hidden flex flex-col justify-between rounded-[32px] border-4 border-slate-700/60
           ${className}
         `}
