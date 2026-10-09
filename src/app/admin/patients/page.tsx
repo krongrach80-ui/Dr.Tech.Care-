@@ -10,6 +10,10 @@ import {
   X,
   Clock,
   HeartPulse,
+  ScanFace,
+  Trash2,
+  KeyRound,
+  CheckCircle2,
 } from "lucide-react";
 import { useAdminStore, type PatientRecord } from "@/lib/stores/adminStore";
 import { physioNoteSchema } from "@/lib/schemas/admin";
@@ -52,7 +56,66 @@ export default function AdminPatientsPage() {
 
   // Selected Patient for detail drawer
   const [selectedPatient, setSelectedPatient] = useState<PatientRecord | null>(null);
-  const [activeTab, setActiveTab] = useState<"info" | "results" | "notes">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "results" | "notes" | "face">("info");
+
+  // Face biometrics management state (Flow C & PDPA)
+  const [bindRequestResult, setBindRequestResult] = useState<string | null>(null);
+  const [faceActionStatus, setFaceActionStatus] = useState<string | null>(null);
+  const [enrolledFaceMap, setEnrolledFaceMap] = useState<Record<string, boolean>>({
+    "u0000000-0000-0000-0000-000000000001": true,
+  });
+
+  const handleStartBindFace = async () => {
+    if (!selectedPatient) return;
+    setFaceActionStatus(null);
+    try {
+      const res = await fetch("/api/face/bind/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patientId: selectedPatient.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.bindRequestId) {
+        setBindRequestResult(data.bindRequestId);
+        setFaceActionStatus(`สร้างคำขอผูกใบหน้ารหัส ${data.bindRequestId} สำเร็จ (มีอายุ 10 นาที)`);
+      } else {
+        setFaceActionStatus(data.error || "เกิดข้อผิดพลาดในการเริ่มผูกใบหน้า");
+      }
+    } catch {
+      setFaceActionStatus("เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์");
+    }
+  };
+
+  const handleWithdrawFace = async () => {
+    if (!selectedPatient) return;
+    if (
+      !confirm(
+        "คุณต้องการเพิกถอนความยินยอมและลบข้อมูลชีวมิติใบหน้าของผู้ป่วยท่านนี้ออกจากระบบถาวร (PDPA Right to Erasure) ใช่หรือไม่?"
+      )
+    ) {
+      return;
+    }
+    setBindRequestResult(null);
+    try {
+      const res = await fetch("/api/face/withdraw", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patientId: selectedPatient.id,
+          reason: "คนไข้แจ้งความประสงค์ขอลบข้อมูลชีวมิติใบหน้าตามสิทธิ์ PDPA",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setEnrolledFaceMap((prev) => ({ ...prev, [selectedPatient.id]: false }));
+        setFaceActionStatus("ลบข้อมูลชีวมิติใบหน้าและเพิกถอนความยินยอมเรียบร้อยแล้ว (PDPA)");
+      } else {
+        setFaceActionStatus(data.error || "เกิดข้อผิดพลาดในการลบข้อมูล");
+      }
+    } catch {
+      setFaceActionStatus("เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์");
+    }
+  };
 
   // Physio note form state
   const [newNoteContent, setNewNoteContent] = useState("");
@@ -276,6 +339,21 @@ export default function AdminPatientsPage() {
               >
                 3. ผลการรักษา
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("face");
+                  setFaceActionStatus(null);
+                }}
+                className={`py-3.5 px-4 border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                  activeTab === "face"
+                    ? "border-[#1E8A4C] text-[#1E8A4C]"
+                    : "border-transparent text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <ScanFace className="w-3.5 h-3.5" />
+                <span>4. ข้อมูลใบหน้า & PDPA</span>
+              </button>
             </div>
 
             {/* Tab Body */}
@@ -448,6 +526,79 @@ export default function AdminPatientsPage() {
                         </div>
                       ))
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: BIOMETRIC FACE & PDPA (FLOW C) */}
+              {activeTab === "face" && selectedPatient && (
+                <div className="flex flex-col gap-5">
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800">สถานะชีวมิติใบหน้า:</span>
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
+                          enrolledFaceMap[selectedPatient.id]
+                            ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                            : "bg-slate-200 text-slate-600"
+                        }`}
+                      >
+                        {enrolledFaceMap[selectedPatient.id] ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-[#1E8A4C]" />
+                            <span>ลงทะเบียนใบหน้าแล้ว (พร้อมใช้งาน Kiosk)</span>
+                          </>
+                        ) : (
+                          <span>ยังไม่ได้ลงทะเบียนใบหน้า</span>
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-slate-500 space-y-1 pt-1 border-t border-slate-200">
+                      <p>• มาตรฐานความปลอดภัย: จัดเก็บเฉพาะค่าเวกเตอร์ 128 มิติ (Embedding)</p>
+                      <p>• กฎหมาย PDPA: ไม่มีการจัดเก็บภาพถ่ายใบหน้าจริงในระบบ (Zero Image Retention)</p>
+                      <p>• สิทธิ์เจ้าของข้อมูล: สามารถเพิกถอนความยินยอมและลบข้อมูลได้ทันที</p>
+                    </div>
+                  </div>
+
+                  {faceActionStatus && (
+                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold text-xs flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-[#1E8A4C] shrink-0" />
+                      <span>{faceActionStatus}</span>
+                    </div>
+                  )}
+
+                  {bindRequestResult && (
+                    <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 text-xs flex flex-col gap-1.5">
+                      <span className="font-bold flex items-center gap-1.5 text-blue-800">
+                        <KeyRound className="w-4 h-4" />
+                        รหัสคำขอผูกใบหน้า: {bindRequestResult}
+                      </span>
+                      <p className="text-[11px] text-blue-700">
+                        สร้างคำขอสำเร็จ (มีอายุ 10 นาที) กรุณาให้ผู้ป่วยไปทำกระบวนการสแกนใบหน้าที่หน้าจอ Kiosk เพื่อผูกข้อมูล
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Flow C Actions */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleStartBindFace}
+                      className="flex-1 py-3 px-4 rounded-2xl bg-[#1E8A4C] hover:bg-[#17733E] text-white font-bold flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+                    >
+                      <ScanFace className="w-4 h-4" />
+                      <span>ผูกใบหน้า (Flow C)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleWithdrawFace}
+                      className="flex-1 py-3 px-4 rounded-2xl bg-white hover:bg-rose-50 border border-rose-300 text-rose-700 font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-600" />
+                      <span>ลบข้อมูลใบหน้า (PDPA Right to Erasure)</span>
+                    </button>
                   </div>
                 </div>
               )}

@@ -215,4 +215,45 @@
      - pgTAP test suite 28 ข้อใน `tests/db/phase3_schedule.sql` ครบทุกบทบาทและ physio_scope
      - Playwright E2E tests 5 ข้อใน `tests/e2e/schedule-phase3.spec.ts` ผ่าน 100%
 
+---
+
+### ADR-014: สถาปัตยกรรมระบบสแกนใบหน้า ลงทะเบียน ล็อกอิน และ PDPA เฟส 4 (Flow A / Flow B / Flow C)
+- **วันที่**: 2026-10-10 (Phase 4)
+- **สถานะ**: อนุมัติแล้ว (Accepted)
+- **บริบท**:
+  - ตาม Master Prompt หัวข้อ 6.5, 7, 9: ระบบชีวมิติใบหน้าเป็นเฟสที่มีความเสี่ยงด้านความปลอดภัยและความเป็นส่วนตัว (PDPA) สูงที่สุด
+  - ต้องรองรับ 3 Flow:
+    - **Flow A (สมัครเองที่ตู้ Kiosk)**: ยินยอม PDPA, สแกนหน้า + Liveness, หากหน้าซ้ำพาไป Flow B ล็อกอิน, หากหน้าใหม่กรอกข้อมูลผ่าน ThaiKeyboard/NumPad และผูกใบหน้า
+    - **Flow B (ล็อกอินด้วยใบหน้า)**: ยินยอม PDPA, สแกนหน้า + Liveness, แสดงการ์ดยืนยันตัวตนพร้อมชื่อปิดบังบางส่วน (Masked Surname), หากกดไม่ใช่ตนเองครบ 2 ครั้งล็อกและแจ้งติดต่อเจ้าหน้าที่คลินิก
+    - **Flow C (ผูกใบหน้าโดยเจ้าหน้าที่)**: เจ้าหน้าที่กด "ผูกใบหน้า" ในหน้าข้อมูลคนไข้ (แท็บใบหน้า) เพื่อเปิด Kiosk Session ผูกใบหน้า และปุ่ม "ลบข้อมูลใบหน้า" (PDPA Right to Erasure)
+- **การตัดสินใจ**:
+  1. **Zero Image Retention & Embedding Security**:
+     - ห้ามบันทึกภาพถ่าย (Raw Frame หรือ Base64) ลงดิสก์หรือส่งผ่านเน็ตเวิร์กเด็ดขาด สกัดเฉพาะเวกเตอร์ตัวเลข 128 มิติ (128-d Float32 vector) แล้วทำลายเฟรมภาพทิ้งทันที
+     - ตาราง `face_embeddings` ใช้ประเภทข้อมูล `vector(128)` พร้อมดัชนี HNSW Cosine Index (`vector_cosine_ops`)
+     - **RLS ขั้นสูงสุด**: ไม่มี SELECT policy ใด ๆ อนุญาตให้ผู้ใช้ทั่วไป (`authenticated` หรือ `anon`) อ่านข้อมูล embedding ได้ การคำนวณและเปรียบเทียบระยะห่างทำผ่าน Database Function `match_face` ด้วยสิทธิ์ `SECURITY DEFINER` และอนุญาตเฉพาะ `service_role` เท่านั้น
+  2. **Single-Use Nonce & Challenge Liveness**:
+     - ตาราง `face_challenges` สุ่มลำดับท่าทาง (เช่น หันซ้าย, หันขวา) เชื่อมโยงกับ nonce ที่มีอายุ 2 นาที
+     - เมื่อนำ nonce มาใช้แล้วจะถูกทำลายทันที (Single-Use Nonce) ป้องกันการนำมาใช้ซ้ำ (Replay Attack)
+     - ไคลเอนต์ตรวจสอบความต่อเนื่องของ yaw และทิศทางหันซ้าย/ขวาปลอดภัยจากการ mirror ภาพ
+     - เก็บ 3 เฟรมที่ดีที่สุดต่อท่า คำนวณเป็นเวกเตอร์เฉลี่ยแบบ Normalize แล้วทิ้งเฟรมทันที
+  3. **Biometric Decision Engine & No Distance Leakage**:
+     - ฟังก์ชันบริสุทธิ์ `decideIdentity()` คืนสถานะ: `match`, `ambiguous`, `no_match`, `inconsistent`
+     - กฎเหล็ก: **ห้ามส่งค่า distance หรือเวกเตอร์ตัวเลขกลับไปยังเบราว์เซอร์เด็ดขาด** เพื่อป้องกัน Biometric Inversion
+     - Flow B แสดงการ์ดยืนยันตัวตนด้วยชื่อปิดบังบางส่วน เช่น `"สมศรี ว****"` โดยใช้ `maskName()` ร่วมกับ `Intl.Segmenter('th')` ที่จัดการสระนำหน้า (`เ`, `โ`, `ใ`, `ไ`, `แ`) อย่างถูกต้อง
+     - ปฏิเสธตัวตนครั้งที่ 2 (2-Strike Threshold): ดีดเข้าสู่สถานะระงับและแจ้งให้ "ติดต่อเจ้าหน้าที่คลินิก" ทันที เพื่อป้องกันการเดาสุ่ม
+  4. **การสร้างเซสชันจริงและการ Fallback (หัวข้อ 6.5)**:
+     - เมื่อยืนยันตัวตนสำเร็จ ระบบออกสิทธิ์เซสชันผ่าน HTTP-Only Cookie (`drtechcare_patient_session`) พร้อมเข้ารหัสโทเคนตามมาตรฐาน
+     - กรณี Supabase Auth Magic Link ไม่พร้อมใช้งานหรือไม่ตอบสนองในโหมด Standalone Kiosk ระบบจะ fallback สู่ Secure HTTP-Only Cookie Session ของแพลตฟอร์ม Dr.Tech.Care โดยอัตโนมัติ
+  5. **Audit Logging & Lockout**:
+     - ป้องกัน Brute-force ด้วย Rate Limiter จำกัดความพยายามผิดพลาดไม่เกิน 5 ครั้ง
+     - ทุกข้อผิดพลาดลงบันทึกใน `audit_logs` (`face_login_fail`, `liveness_fail`, `face_duplicate`, `face_login_rejected`, `face_lockout`)
+     - **กฎเหล็กเรื่อง Audit**: ไม่บันทึกค่า embedding ของความพยายามที่ล้มเหลวลงใน audit log เด็ดขาด
+  6. **PDPA Compliance & Right to Erasure**:
+     - `ConsentSheet`: เช็กลิสต์ไม่ติ๊กเลือกไว้ล่วงหน้า (Unchecked by default), จัดเก็บ Consent Version 1.0 และ SHA-256 Digest ของข้อความยินยอม
+     - การใช้สิทธิถอนความยินยอมและลบข้อมูลชีวมิติ (Right to Erasure): เจ้าหน้าที่สามารถกดลบข้อมูลใบหน้าจากแท็บชีวมิติของคนไข้ได้ทันที (`/api/face/withdraw`) ซึ่งจะล้างทั้งเวกเตอร์ใบหน้าและบันทึกความยินยอม
+  7. **Background Cleanup**:
+     - `pg_cron` รันทุก 15 นาที เรียกใช้ฟังก์ชัน `maintenance_cleanup_expired_face_records()` เพื่อล้าง drafts, challenges และ candidates ที่หมดอายุออกจากระบบอัตโนมัติ
+- **ผลลัพธ์**: ระบบสแกนใบหน้าทำงานได้อย่างปลอดภัย รวดเร็ว เป็นไปตามมาตรฐาน PDPA ของไทย 100% และผ่านการทดสอบทั้ง Unit Test, Database Test และ End-to-End Test ครบถ้วน
+
+
 

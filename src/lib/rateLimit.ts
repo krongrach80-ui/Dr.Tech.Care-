@@ -67,3 +67,5 @@ export function recordFailedLoginAttempt(key: string): {
 export function resetLoginAttempts(key: string): void {
   attemptMap.delete(key);
 }
+
+export const resetLoginRateLimit = resetLoginAttempts;

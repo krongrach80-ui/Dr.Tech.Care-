@@ -7,9 +7,15 @@ const THAI_LEADING_VOWELS = new Set(["เ", "แ", "โ", "ใ", "ไ"]);
  * ปิดบังนามสกุลเพื่อความเป็นส่วนตัวตาม PDPA (เช่น "ธนากร", "วงศ์สกุล" -> "ธนากร ว****")
  * ใช้ Intl.Segmenter เพื่อจัดการ grapheme cluster ภาษาไทยอย่างถูกต้อง ไม่ให้สระหรือวรรณยุกต์ขาดวิ่น
  */
-export function maskName(firstName: string, lastName: string): string {
-  const cleanFirst = firstName.trim();
-  const cleanLast = lastName.trim();
+export function maskName(firstName: string, lastName?: string): string {
+  let cleanFirst = firstName.trim();
+  let cleanLast = (lastName ?? "").trim();
+
+  if (!cleanLast && cleanFirst.includes(" ")) {
+    const parts = cleanFirst.split(/\s+/);
+    cleanFirst = parts[0] ?? "";
+    cleanLast = parts.slice(1).join(" ");
+  }
 
   if (!cleanLast) {
     return cleanFirst;

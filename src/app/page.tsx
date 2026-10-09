@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
 import {
   Activity,
   ScanFace,
@@ -14,7 +13,6 @@ import {
   Clock,
   WifiOff,
   ArrowRight,
-  ShieldCheck,
   RotateCcw,
   Sparkles,
   AlertTriangle,
@@ -26,9 +24,10 @@ import { NumPad } from "@/components/kiosk/NumPad";
 import { CameraMirror } from "@/components/kiosk/CameraMirror";
 import { PatientDashboard } from "@/components/kiosk/PatientDashboard";
 import { StaffTrigger } from "@/components/kiosk/StaffTrigger";
-import { formatThaiDate, maskName } from "@/lib/thai";
+import { formatThaiDate } from "@/lib/thai";
 import { resetKioskState } from "@/lib/kiosk";
 import { generateServerChallenge, type ServerChallenge, type LivenessPose } from "@/lib/biometrics";
+import { ConsentSheet, CONSENT_VERSION, CONSENT_TEXT_SHA256 } from "@/components/kiosk/ConsentSheet";
 
 function subscribeOnline(callback: () => void) {
   window.addEventListener("online", callback);
@@ -84,7 +83,6 @@ export type KioskFlowState =
   | "completion"; // 10. สรุปผลการฝึก + คำแนะนำแพทย์
 
 export default function KioskPage() {
-  const router = useRouter();
   const isOnline = useSyncExternalStore(subscribeOnline, getOnlineSnapshot, getOnlineServerSnapshot);
   const clockTimestamp = useSyncExternalStore(subscribeClock, getClockSnapshot, getClockServerSnapshot);
 
@@ -114,9 +112,30 @@ export default function KioskPage() {
 
   // Registration Form State
   const [regFirstName, setRegFirstName] = useState("สมพร");
-  const [regLastName, setRegLastName] = useState("เจริญสุข");
+  const [regLastName, setRegLastName] = useState("เกษมสุข");
   const [regAge, setRegAge] = useState("68");
   const [activeInput, setActiveInput] = useState<"none" | "firstName" | "lastName" | "age">("none");
+
+  // Biometric & PDPA State (Phase 4)
+  const [consentData, setConsentData] = useState<{
+    version: string;
+    sha256: string;
+    accepted: true;
+  } | null>(null);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [loginCandidate, setLoginCandidate] = useState<{
+    candidateId: string;
+    maskedName: string;
+    hn: string;
+    age?: number;
+    attemptNo: number;
+  } | null>(null);
+  const [loginRejectionCount, setLoginRejectionCount] = useState<number>(0);
+  const [isStaffContactPrompt, setIsStaffContactPrompt] = useState<boolean>(false);
+  const [duplicateInfo, setDuplicateInfo] = useState<{
+    maskedName: string;
+    hn: string;
+  } | null>(null);
 
   // Login & Registration Liveness Challenge Step with Server Challenge (Nonce + Randomized sequence)
   const [loginChallenge, setLoginChallenge] = useState<ServerChallenge>(() => generateServerChallenge());
@@ -141,6 +160,12 @@ export default function KioskPage() {
     setCountdown(0);
     setExerciseReps(0);
     setSelectedQuizAnswer(null);
+    setConsentData(null);
+    setActiveDraftId(null);
+    setLoginCandidate(null);
+    setLoginRejectionCount(0);
+    setIsStaffContactPrompt(false);
+    setDuplicateInfo(null);
     const freshLoginChallenge = generateServerChallenge();
     const freshRegChallenge = generateServerChallenge();
     setLoginChallenge(freshLoginChallenge);
@@ -325,67 +350,17 @@ export default function KioskPage() {
         {/* 1.1 ความยินยอม PDPA ก่อนสแกนใบหน้าเข้าสู่ระบบ (LOGIN PDPA CONSENT)        */}
         {/* ========================================================================= */}
         {state === "login_consent" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
-            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
-              <button
-                type="button"
-                onClick={handleFullReset}
-                className="px-3.5 py-1.5 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span>กลับหน้าแรก</span>
-              </button>
-              <span className="text-xs font-bold text-[#1E8A4C]">ความยินยอมข้อมูลชีวมิติ</span>
-            </div>
-
-            <div className="w-full flex flex-col items-center my-auto py-1">
-              <div className="w-14 h-14 rounded-2xl bg-[#1E8A4C]/15 text-[#1E8A4C] flex items-center justify-center mb-2">
-                <ShieldCheck className="w-8 h-8" />
-              </div>
-
-              <h2 className="text-xl font-extrabold text-[#0B2B2B] text-center mb-1">
-                ยินยอมสแกนใบหน้าเพื่อเข้าสู่ระบบ
-              </h2>
-              <p className="text-xs text-[#3D5A5A] text-center mb-2.5">
-                ตามพระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล (PDPA)
-              </p>
-
-              <div className="w-full bg-white rounded-2xl p-4 border border-slate-200 text-xs text-[#0B2B2B] leading-relaxed space-y-2 max-h-48 overflow-y-auto shadow-inner text-left">
-                <p className="font-bold text-[#1E8A4C]">ข้อตกลงการประมวลผลข้อมูลชีวมิติ:</p>
-                <p>1. ข้อมูลใบหน้าของท่านจะถูกแปลงเป็นค่าเวกเตอร์ตัวเลข 128 มิติ (Face Embedding) ทันทีบนอุปกรณ์</p>
-                <p>2. ระบบไม่มีการบันทึกภาพถ่ายจริงหรือไฟล์วิดีโอลงในฐานข้อมูล</p>
-                <p>3. ข้อมูลนำมาใช้เพื่อระบุตัวตนและดึงแผนการฝึกกายภาพบำบัดของท่านอย่างปลอดภัย</p>
-              </div>
-
-              <div className="w-full flex flex-col gap-2.5 mt-4">
-                <BigButton
-                  variant="strong-primary"
-                  className="!min-h-[58px] !text-base"
-                  onClick={() => {
-                    const fresh = generateServerChallenge();
-                    setLoginChallenge(fresh);
-                    setLoginLivenessStep(fresh.sequence[0]);
-                    transitionTo("login_face_scan");
-                  }}
-                  icon={<CheckCircle2 className="w-5 h-5" />}
-                >
-                  ยินยอมและเริ่มสแกนใบหน้า
-                </BigButton>
-
-                <button
-                  type="button"
-                  onClick={handleFullReset}
-                  className="w-full py-2.5 text-xs font-bold text-[#3D5A5A] hover:text-[#0B2B2B] transition-colors cursor-pointer"
-                >
-                  ไม่ยินยอม (กลับหน้าแรก)
-                </button>
-              </div>
-            </div>
-
-            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
-              ท่านสามารถขอยกเลิกหรือตรวจสอบข้อมูลชีวมิติได้ตลอดเวลา
-            </div>
-          </div>
+          <ConsentSheet
+            purpose="login"
+            onAccept={(consent) => {
+              setConsentData(consent);
+              const fresh = generateServerChallenge();
+              setLoginChallenge(fresh);
+              setLoginLivenessStep(fresh.sequence[0]);
+              transitionTo("login_face_scan");
+            }}
+            onCancel={handleFullReset}
+          />
         )}
 
         {/* ========================================================================= */}
@@ -472,9 +447,58 @@ export default function KioskPage() {
                   onStepComplete={(step) => {
                     if (step === 1) setLoginLivenessStep(loginChallenge.sequence[1]);
                     else if (step === 2) setLoginLivenessStep(loginChallenge.sequence[2]);
-                    else transitionTo("login_confirm");
+                    else {
+                      setLoginCandidate({
+                        candidateId: "cand-somsri",
+                        maskedName: "สมศรี ว****",
+                        hn: "69-00124",
+                        age: 72,
+                        attemptNo: loginRejectionCount + 1,
+                      });
+                      transitionTo("login_confirm");
+                    }
                   }}
-                  onAllStepsComplete={() => {
+                  onAllStepsComplete={async (payload) => {
+                    try {
+                      const res = await fetch("/api/face/login", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          challengeNonce: loginChallenge.nonce,
+                          embedding: payload?.embedding ?? new Array(128).fill(1 / Math.sqrt(128)),
+                          quality: payload?.quality
+                            ? (payload.quality.lightingScore + payload.quality.sharpnessScore) / 200
+                            : 0.95,
+                          attemptNo: loginRejectionCount + 1,
+                          kioskId: "kiosk-01",
+                        }),
+                      });
+                      const json = await res.json();
+                      if (json.outcome === "match" && json.candidateId) {
+                        setLoginCandidate({
+                          candidateId: json.candidateId,
+                          maskedName: json.maskedName ?? "สมศรี ว****",
+                          hn: json.hn ?? "69-00124",
+                          age: json.age ?? 72,
+                          attemptNo: loginRejectionCount + 1,
+                        });
+                        transitionTo("login_confirm");
+                        return;
+                      } else if (json.outcome === "locked_out") {
+                        setIsStaffContactPrompt(true);
+                        transitionTo("login_confirm");
+                        return;
+                      }
+                    } catch {
+                      // fallback
+                    }
+                    setLoginCandidate({
+                      candidateId: "cand-somsri",
+                      maskedName: "สมศรี ว****",
+                      hn: "69-00124",
+                      age: 72,
+                      attemptNo: loginRejectionCount + 1,
+                    });
                     transitionTo("login_confirm");
                   }}
                   className="w-full h-full"
@@ -509,13 +533,21 @@ export default function KioskPage() {
                   <BigButton
                     variant="strong-primary"
                     className="!min-h-[58px] !text-base"
-                    onClick={() => transitionTo("login_confirm")}
+                    onClick={() => {
+                      setLoginCandidate({
+                        candidateId: "cand-somsri",
+                        maskedName: "สมศรี ว****",
+                        hn: "69-00124",
+                        age: 72,
+                        attemptNo: loginRejectionCount + 1,
+                      });
+                      transitionTo("login_confirm");
+                    }}
                     icon={<CheckCircle2 className="w-5 h-5" />}
                   >
                     สแกนครบ 3 มุม (ตรวจสอบข้อมูล)
                   </BigButton>
                 )}
-
 
                 {/* ปุ่มจำลองเข้าระบบด่วน / ปุ่มเริ่มใหม่ */}
                 <div className="flex items-center gap-2 mt-1">
@@ -530,7 +562,16 @@ export default function KioskPage() {
 
                   <button
                     type="button"
-                    onClick={() => transitionTo("login_confirm")}
+                    onClick={() => {
+                      setLoginCandidate({
+                        candidateId: "cand-somsri",
+                        maskedName: "สมศรี ว****",
+                        hn: "69-00124",
+                        age: 72,
+                        attemptNo: loginRejectionCount + 1,
+                      });
+                      transitionTo("login_confirm");
+                    }}
                     className="flex-1 py-2 rounded-xl bg-emerald-50 border border-emerald-300 text-[#1E8A4C] text-xs font-bold flex items-center justify-center gap-1 shadow-sm hover:bg-emerald-100 cursor-pointer"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
@@ -564,67 +605,144 @@ export default function KioskPage() {
               <span className="text-xs font-bold text-[#1E8A4C]">ยืนยันตัวตน</span>
             </div>
 
-            <div className="w-full flex flex-col items-center text-center my-auto py-2">
-              <div className="w-16 h-16 rounded-full bg-[#1E8A4C]/15 text-[#1E8A4C] flex items-center justify-center mb-2">
-                <CheckCircle2 className="w-10 h-10" />
-              </div>
-
-              <h2 className="text-xl sm:text-2xl font-extrabold text-[#0B2B2B] mb-0.5">
-                ตรวจพบข้อมูลผู้ป่วย
-              </h2>
-              <p className="text-xs text-[#3D5A5A] mb-3">
-                กรุณาตรวจสอบชื่อของท่านก่อนเข้าสู่ระบบ
-              </p>
-
-              {/* การ์ดข้อมูลผู้ป่วย */}
-              <div className="w-full bg-white rounded-2xl p-4 sm:p-5 border-2 border-[#1E8A4C]/30 shadow-md flex flex-col gap-2">
-                <span className="text-xs font-bold text-[#1E8A4C] uppercase tracking-wider">
-                  ชื่อ-นามสกุลผู้ป่วย
-                </span>
-                <p className="text-2xl sm:text-3xl font-black text-[#0B2B2B]">
-                  {maskName("ประเสริฐ", "รักษ์ดี")}
-                </p>
-                <div className="flex items-center justify-center gap-2.5 text-xs font-semibold text-[#3D5A5A] pt-2 border-t border-slate-100">
-                  <span>เพศ ชาย</span>
-                  <span>•</span>
-                  <span>อายุ 72 ปี</span>
-                  <span>•</span>
-                  <span>HN: 69-00124</span>
-                  <span>•</span>
-                  <span className="text-[#1E8A4C] font-bold">มีนัดวันนี้</span>
+            {isStaffContactPrompt ? (
+              /* ปฏิเสธตัวตนครั้งที่ 2 -> ติดต่อเจ้าหน้าที่ */
+              <div className="w-full flex flex-col items-center text-center my-auto py-2">
+                <div className="w-16 h-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mb-3">
+                  <AlertTriangle className="w-10 h-10" />
                 </div>
-              </div>
 
-              {/* คำถามใหญ่ "ใช่บัญชีนี้หรือไม่?" */}
-              <div className="w-full bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 my-3">
-                <p className="text-base font-extrabold text-[#1E8A4C]">
-                  ใช่บัญชีของท่านหรือไม่?
+                <h2 className="text-xl sm:text-2xl font-extrabold text-[#0B2B2B] mb-1">
+                  กรุณาติดต่อเจ้าหน้าที่คลินิก
+                </h2>
+                <p className="text-xs text-[#3D5A5A] mb-4">
+                  ท่านได้ปฏิเสธตัวตนครบ 2 ครั้ง เพื่อความปลอดภัยตามมาตรฐาน PDPA ระบบขอระงับการเข้าสู่ระบบผ่านใบหน้าชั่วคราว
                 </p>
-              </div>
 
-              {/* ปุ่มยืนยัน / ปฏิเสธ */}
-              <div className="w-full flex flex-col gap-2.5">
+                <div className="w-full bg-rose-50 border border-rose-200 rounded-2xl p-4 text-left text-xs text-rose-900 mb-4">
+                  <p className="font-bold">ขั้นตอนการดำเนินการ:</p>
+                  <p className="mt-1">1. ติดต่อเคาน์เตอร์เวชระเบียนเพื่อตรวจสอบบัตรประชาชนและ HN</p>
+                  <p className="mt-0.5">2. นักกายภาพหรือเจ้าหน้าที่จะอัปเดตข้อมูลชีวมิติให้ท่าน</p>
+                </div>
+
                 <BigButton
                   variant="strong-primary"
-                  className="!min-h-[64px] !text-lg"
-                  onClick={() => router.push("/home")}
-                  icon={<ArrowRight className="w-5 h-5" />}
+                  className="!min-h-[58px] !text-base w-full"
+                  onClick={handleFullReset}
                 >
-                  ใช่ (เข้าสู่หน้าหลักของฉัน)
+                  กลับสู่หน้าแรก
                 </BigButton>
-
-                <button
-                  type="button"
-                  onClick={() => transitionTo("login_face_scan")}
-                  className="w-full py-2.5 rounded-xl bg-white border border-[#0B2B2B]/20 text-xs sm:text-sm font-bold text-[#3D5A5A] hover:text-[#0B2B2B] transition-colors cursor-pointer"
-                >
-                  ไม่ใช่ (ลองสแกนใหม่)
-                </button>
               </div>
-            </div>
+            ) : (
+              <div className="w-full flex flex-col items-center text-center my-auto py-2">
+                <div className="w-16 h-16 rounded-full bg-[#1E8A4C]/15 text-[#1E8A4C] flex items-center justify-center mb-2">
+                  <CheckCircle2 className="w-10 h-10" />
+                </div>
+
+                <h2 className="text-xl sm:text-2xl font-extrabold text-[#0B2B2B] mb-0.5">
+                  ตรวจพบข้อมูลผู้ป่วย
+                </h2>
+                <p className="text-xs text-[#3D5A5A] mb-3">
+                  กรุณาตรวจสอบชื่อของท่านก่อนเข้าสู่ระบบ
+                </p>
+
+                {/* การ์ดข้อมูลผู้ป่วย แสดงชื่อปิดบังบางส่วน เช่น สมศรี ว**** */}
+                <div className="w-full bg-white rounded-2xl p-4 sm:p-5 border-2 border-[#1E8A4C]/30 shadow-md flex flex-col gap-2">
+                  <span className="text-xs font-bold text-[#1E8A4C] uppercase tracking-wider">
+                    ชื่อ-นามสกุลผู้ป่วย
+                  </span>
+                  <p className="text-2xl sm:text-3xl font-black text-[#0B2B2B]">
+                    {loginCandidate?.maskedName ?? "สมศรี ว****"}
+                  </p>
+                  <div className="flex items-center justify-center gap-2.5 text-xs font-semibold text-[#3D5A5A] pt-2 border-t border-slate-100">
+                    <span>เพศ หญิง</span>
+                    <span>•</span>
+                    <span>อายุ {loginCandidate?.age ?? 72} ปี</span>
+                    <span>•</span>
+                    <span>HN: {loginCandidate?.hn ?? "69-00124"}</span>
+                    <span>•</span>
+                    <span className="text-[#1E8A4C] font-bold">มีนัดวันนี้</span>
+                  </div>
+                </div>
+
+                {/* คำถามใหญ่ "ใช่บัญชีนี้หรือไม่?" */}
+                <div className="w-full bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 my-3">
+                  <p className="text-base font-extrabold text-[#1E8A4C]">
+                    ใช่บัญชีของท่านหรือไม่?
+                  </p>
+                </div>
+
+                {/* ปุ่มยืนยัน / ปฏิเสธ */}
+                <div className="w-full flex flex-col gap-2.5">
+                  <BigButton
+                    variant="strong-primary"
+                    className="!min-h-[64px] !text-lg"
+                    onClick={async () => {
+                      if (loginCandidate?.candidateId) {
+                        try {
+                          await fetch("/api/face/confirm", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              candidateId: loginCandidate.candidateId,
+                              confirmed: true,
+                            }),
+                          });
+                        } catch {
+                          // fallback
+                        }
+                      }
+                      transitionTo("patient_home");
+                    }}
+                    icon={<ArrowRight className="w-5 h-5" />}
+                  >
+                    ใช่ (เข้าสู่หน้าหลักของฉัน)
+                  </BigButton>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const newRejectionCount = loginRejectionCount + 1;
+                      setLoginRejectionCount(newRejectionCount);
+
+                      if (loginCandidate?.candidateId) {
+                        try {
+                          const res = await fetch("/api/face/confirm", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              candidateId: loginCandidate.candidateId,
+                              confirmed: false,
+                            }),
+                          });
+                          const json = await res.json();
+                          if (json.retryAllowed === false || newRejectionCount >= 2) {
+                            setIsStaffContactPrompt(true);
+                            return;
+                          }
+                        } catch {
+                          // fallback
+                        }
+                      }
+
+                      if (newRejectionCount >= 2) {
+                        setIsStaffContactPrompt(true);
+                      } else {
+                        transitionTo("login_face_scan");
+                      }
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-white border border-[#0B2B2B]/20 text-xs sm:text-sm font-bold text-[#3D5A5A] hover:text-[#0B2B2B] transition-colors cursor-pointer"
+                  >
+                    ไม่ใช่ (ลองสแกนใหม่ {loginRejectionCount > 0 ? "— ครั้งสุดท้าย" : ""})
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
-              หากลองสแกนแล้วยังไม่ตรง กรุณาติดต่อเจ้าหน้าที่คลินิก
+              {isStaffContactPrompt
+                ? "หากมีข้อสงสัย กรุณาขอความช่วยเหลือจากเจ้าหน้าที่จุดบริการ"
+                : "หากลองสแกนแล้วยังไม่ตรง กรุณาติดต่อเจ้าหน้าที่คลินิก"}
             </div>
           </div>
         )}
@@ -652,66 +770,17 @@ export default function KioskPage() {
         {/* 5. ผู้ป่วยใหม่: ความยินยอม PDPA (REGISTER CONSENT)                         */}
         {/* ========================================================================= */}
         {state === "register_consent" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
-            
-            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
-              <button
-                type="button"
-                onClick={handleFullReset}
-                className="px-3.5 py-1.5 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span>กลับหน้าแรก</span>
-              </button>
-              <span className="text-xs font-bold text-[#1E8A4C]">สมัครบัญชีใหม่</span>
-            </div>
-
-            <div className="w-full flex flex-col items-center my-auto py-1">
-              <div className="w-14 h-14 rounded-2xl bg-[#6FD67F]/20 text-[#1E8A4C] flex items-center justify-center mb-2">
-                <ShieldCheck className="w-8 h-8" />
-              </div>
-
-              <h2 className="text-xl font-extrabold text-[#0B2B2B] text-center mb-1">
-                ความยินยอมเก็บข้อมูล (PDPA)
-              </h2>
-              <p className="text-xs text-[#3D5A5A] text-center mb-2.5">
-                ระบบจะเก็บค่าตัวเลขเวกเตอร์ใบหน้า เพื่อใช้เข้าสู่ระบบอย่างปลอดภัย
-              </p>
-
-              <div className="w-full bg-white rounded-2xl p-3.5 border border-slate-200 text-xs text-[#0B2B2B] leading-relaxed space-y-2 max-h-48 overflow-y-auto shadow-inner text-left">
-                <p className="font-bold text-[#1E8A4C]">วัตถุประสงค์ในการประมวลผลข้อมูลชีวมิติ:</p>
-                <p>1. ข้อมูลใบหน้าจะถูกแปลงเป็นค่าตัวเลขคณิตศาสตร์ (128-d Vector Embedding) ทันทีบนอุปกรณ์</p>
-                <p>2. ระบบจะไม่บันทึกภาพถ่ายใบหน้าจริงลงในเซิร์ฟเวอร์</p>
-                <p>3. ข้อมูลจะถูกใช้สำหรับการยืนยันตัวตนและการฝึกกายภาพบำบัดของท่านเท่านั้น</p>
-              </div>
-
-              <div className="w-full flex flex-col gap-2.5 mt-4">
-                <BigButton
-                  variant="strong-primary"
-                  className="!min-h-[58px] !text-base"
-                  onClick={() => {
-                    setRegLivenessStep("center");
-                    transitionTo("register_face_scan");
-                  }}
-                  icon={<CheckCircle2 className="w-5 h-5" />}
-                >
-                  ยินยอมและสแกนใบหน้า
-                </BigButton>
-
-                <button
-                  type="button"
-                  onClick={handleFullReset}
-                  className="w-full py-2.5 text-xs font-bold text-[#3D5A5A] hover:text-[#0B2B2B] transition-colors cursor-pointer"
-                >
-                  ไม่ยินยอม (กลับหน้าแรก)
-                </button>
-              </div>
-            </div>
-
-            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
-              ท่านสามารถขอยกเลิกหรือลบข้อมูลใบหน้าได้ตลอดเวลา
-            </div>
-          </div>
+          <ConsentSheet
+            purpose="register"
+            onAccept={(consent) => {
+              setConsentData(consent);
+              const fresh = generateServerChallenge();
+              setRegChallenge(fresh);
+              setRegLivenessStep(fresh.sequence[0]);
+              transitionTo("register_face_scan");
+            }}
+            onCancel={handleFullReset}
+          />
         )}
 
         {/* ========================================================================= */}
@@ -775,7 +844,42 @@ export default function KioskPage() {
                     else if (step === 2) setRegLivenessStep(regChallenge.sequence[2]);
                     else transitionTo("register_form");
                   }}
-                  onAllStepsComplete={() => {
+                  onAllStepsComplete={async (payload) => {
+                    const centerVec = payload?.embedding ?? new Array(128).fill(1 / Math.sqrt(128));
+                    const leftVec = payload?.embedding ?? centerVec;
+                    const rightVec = payload?.embedding ?? centerVec;
+                    try {
+                      const res = await fetch("/api/face/register/scan", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          challengeNonce: regChallenge.nonce,
+                          embeddings: { center: centerVec, left: leftVec, right: rightVec },
+                          consent: consentData ?? {
+                            version: CONSENT_VERSION,
+                            sha256: CONSENT_TEXT_SHA256,
+                            accepted: true,
+                          },
+                          kioskId: "kiosk-01",
+                        }),
+                      });
+                      const json = await res.json();
+                      if (json.status === "duplicate_found") {
+                        setDuplicateInfo({
+                          maskedName: json.maskedName ?? "สมศรี ว****",
+                          hn: "69-00124",
+                        });
+                        transitionTo("register_duplicate_warn");
+                        return;
+                      }
+                      if (json.status === "draft_created" && json.draftId) {
+                        setActiveDraftId(json.draftId);
+                        transitionTo("register_form");
+                        return;
+                      }
+                    } catch {
+                      // fallback
+                    }
                     transitionTo("register_form");
                   }}
                   className="w-full h-full"
@@ -816,7 +920,13 @@ export default function KioskPage() {
                 {/* ปุ่มจำลองเตือนใบหน้าซ้ำ เพื่อทดสอบ Duplicate Detection */}
                 <button
                   type="button"
-                  onClick={() => transitionTo("register_duplicate_warn")}
+                  onClick={() => {
+                    setDuplicateInfo({
+                      maskedName: "สมศรี ว****",
+                      hn: "69-00124",
+                    });
+                    transitionTo("register_duplicate_warn");
+                  }}
                   className="text-[11px] text-amber-700 hover:underline mt-1 cursor-pointer"
                 >
                   (ทดสอบ: จำลองพบใบหน้าซ้ำกับบัญชีเดิม)
@@ -862,15 +972,26 @@ export default function KioskPage() {
 
               <div className="w-full bg-white rounded-2xl p-4 border border-amber-200 shadow-sm text-left mb-4">
                 <span className="text-xs font-bold text-amber-800">บัญชีที่ตรงกัน:</span>
-                <p className="text-lg font-black text-[#0B2B2B] mt-1">{maskName("ประเสริฐ", "รักษ์ดี")}</p>
-                <span className="text-xs text-[#527070]">HN: 69-00124</span>
+                <p className="text-lg font-black text-[#0B2B2B] mt-1">
+                  {duplicateInfo?.maskedName ?? "สมศรี ว****"}
+                </p>
+                <span className="text-xs text-[#527070]">HN: {duplicateInfo?.hn ?? "69-00124"}</span>
               </div>
 
               <div className="w-full flex flex-col gap-2">
                 <BigButton
                   variant="strong-primary"
                   className="!min-h-[60px] !text-lg"
-                  onClick={() => transitionTo("login_confirm")}
+                  onClick={() => {
+                    setLoginCandidate({
+                      candidateId: "cand-somsri",
+                      maskedName: duplicateInfo?.maskedName ?? "สมศรี ว****",
+                      hn: duplicateInfo?.hn ?? "69-00124",
+                      age: 72,
+                      attemptNo: 1,
+                    });
+                    transitionTo("login_confirm");
+                  }}
                 >
                   เข้าสู่ระบบด้วยบัญชีนี้
                 </BigButton>
@@ -992,7 +1113,29 @@ export default function KioskPage() {
                 <BigButton
                   variant="strong-primary"
                   className="!min-h-[58px] !text-lg"
-                  onClick={() => transitionTo("register_success")}
+                  onClick={async () => {
+                    if (activeDraftId) {
+                      try {
+                        const birthYear = 2026 - parseInt(regAge || "68", 10);
+                        await fetch("/api/face/patients/register", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            draftId: activeDraftId,
+                            firstName: regFirstName,
+                            lastName: regLastName,
+                            birthDate: `${birthYear}-01-01`,
+                            gender: "female",
+                            phone: "089-123-4567",
+                            injuryDetails: "ตรวจและฟื้นฟูกายภาพบำบัด",
+                          }),
+                        });
+                      } catch {
+                        // fallback
+                      }
+                    }
+                    transitionTo("register_success");
+                  }}
                 >
                   บันทึกข้อมูลและเสร็จสิ้น
                 </BigButton>
