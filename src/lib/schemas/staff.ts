@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+export const appRoleSchema = z.enum(["director", "physio", "patient"]);
 export const staffRoleSchema = z.enum(["director", "physio"]);
 
 export const staffLoginSchema = z.object({

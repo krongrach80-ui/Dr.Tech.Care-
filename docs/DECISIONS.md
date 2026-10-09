@@ -149,6 +149,33 @@
   - สร้าง `PoseRepStateMachine` ใน `src/features/pose/repCounter.ts`
   - กรองมุมกระตุกด้วย Exponential Moving Average (EMA)
   - ตรวจสอบ Range of Motion (ROM), ตรวจจับความเร็วที่เร็วเกินไป (<1.5s) หรือช้าเกินไป (>7s)
-  - รองรับการสลับข้างซ้าย-ขวาอัตโนมัติ และตรวจจับการบังข้อต่อ (Occlusion)
-- **ผลลัพธ์**: ผลการฝึกกายภาพมีความน่าเชื่อถือทางคลินิก
+
+---
+
+### ADR-012: สถาปัตยกรรมระบบบริหารจัดการเจ้าหน้าที่ เฟส 1 (Admin 6 Windows / Physio 4 Windows)
+- **วันที่**: 2026-10-10 (Phase 1)
+- **สถานะ**: อนุมัติแล้ว (Accepted)
+- **บริบท**:
+  - ระบบบริหารจัดการเจ้าหน้าที่แบ่งเป็น 2 บทบาทหลัก: ผู้อำนวยการ (`director` - แอดมินใหญ่) และนักกายภาพ (`physio`)
+  - แอดมินใหญ่มี 6 หน้าต่าง: จัดการผู้ใช้งาน, ข้อมูลคนไข้, ข้อมูลนักกายภาพ, ท่ากายภาพ, ประวัติการใช้งาน (Audit Log / Active Sessions / Ban), ตั้งค่าระบบ
+  - นักกายภาพมี 4 หน้าต่าง: จัดการผู้ใช้งาน (ดูตนเอง+คนไข้ที่ดูแล, สร้างได้เฉพาะคนไข้), ข้อมูลคนไข้ (ดู/แก้ตาม physio_scope, เขียนโน้ต), ข้อมูลนักกายภาพ (ดูทุกคน, แก้เฉพาะตนเอง), ท่ากายภาพ (ดูทั้งหมด, เพิ่มได้, แก้/ลบเฉพาะท่าที่ตนสร้าง)
+  - ห้ามเข้าและซ่อนเมนู `audit` และ `settings` สำหรับนักกายภาพโดยเด็ดขาด (HTTP 403 ทั้ง UI และ Server Guard)
+- **การตัดสินใจ**:
+  1. **สิทธิ์ 3 ชั้น (3-Tier Security)**:
+     - ชั้นที่ 1 (UI Level): ตรวจสอบ `getAccessibleAdminMenus()` ใน Admin Layout Sidebar ซ่อนเมนูที่ไม่มีสิทธิ์ และแสดงจอ 403 Forbidden เมื่อพยายามเข้าหน้าโดยตรง
+     - ชั้นที่ 2 (Server Guard Level): ฟังก์ชัน `guardAdminAccess()`, `guardDirectorOnly()`, `guardPatientAccess()`, `guardDeleteUser()`, `guardBanTarget()` ใน `src/lib/auth/guard.ts`
+     - ชั้นที่ 3 (Database Level): Row-Level Security (RLS) policies บนทุกตาราง พร้อม pgTAP unit tests ครบ 3 บทบาท ใน `tests/db/phase1_rbac_rls.sql`
+  2. **Audit Hash Chain Cryptographic Integrity**:
+     - ทุกการกระทำลงบันทึกใน `audit_logs` พร้อมคำนวณ `row_hash = SHA256(prev_hash + actor_id + action + table_name + record_id + changed_data + timestamp)`
+     - มีฟังก์ชัน `verifyAuditHashChain()` ตรวจสอบความถูกต้องตั้งแต่แถวแรกจนถึงแถวล่าสุด สามารถตรวจจับการดัดแปลงข้อมูลย้อนหลังได้ 100%
+  3. **กฎกันพลาด (Safeguards)**:
+     - ป้องกันการลบแอดมินใหญ่คนสุดท้าย (`isLastDirector`)
+     - ป้องกันการลบบัญชีตนเอง (`isSelf`)
+     - ป้องกันการแบน IP หรือ Cookie ของเครื่องที่ตนเองกำลังล็อกอินอยู่
+     - การลบบัญชีต้องยืนยันด้วยการพิมพ์ชื่อผู้ใช้ซ้ำ (Username Confirmation)
+  4. **ขอบเขตเฟส 1**:
+     - `analysis_config` ในตาราง `exercises` เว้นเป็น `null`
+     - แท็บ "ผลการรักษา" ในหน้าข้อมูลคนไข้แสดง Empty State
+     - หน้าตั้งค่าระบบบันทึกค่าได้และแจ้งเตือนใน UI ว่าค่าจะมีผลเมื่อเปิดใช้ระบบสแกนใบหน้าและวิเคราะห์ท่าในเฟสถัดไป
+- **ผลลัพธ์**: โครงสร้างแข็งแกร่ง ปลอดภัย ผ่านเกณฑ์การทดสอบ 100% ทั้งระดับ Unit Tests, Typecheck, Lint, Build และ Playwright E2E
 

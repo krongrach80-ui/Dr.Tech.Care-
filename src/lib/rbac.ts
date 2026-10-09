@@ -27,6 +27,21 @@ export interface RbacContext {
 }
 
 /**
+ * แปลงชื่อ Role เป็นภาษาไทยตามข้อกำหนด Master Prompt
+ * director = แอดมินใหญ่ | physio = นักกายภาพ | patient = คนไข้
+ */
+export function roleLabelThai(role: AppRole): string {
+  switch (role) {
+    case "director":
+      return "แอดมินใหญ่";
+    case "physio":
+      return "นักกายภาพ";
+    case "patient":
+      return "คนไข้";
+  }
+}
+
+/**
  * Checks if a role can access the admin dashboard (/admin)
  */
 export function canAccessAdmin(role: AppRole): boolean {
