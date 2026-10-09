@@ -65,11 +65,17 @@ export function IdleGuard({
         clearInterval(checkInterval);
         performLogout();
       } else if (idleDurationSeconds >= warningThreshold) {
-        setShowWarning(true);
+        setShowWarning((prev) => {
+          if (!prev) return true;
+          return prev;
+        });
         const remaining = Math.max(0, Math.ceil(idleTimeoutSeconds - idleDurationSeconds));
         setCountdown(remaining);
       } else {
-        setShowWarning(false);
+        setShowWarning((prev) => {
+          if (prev) return false;
+          return prev;
+        });
       }
     }, 1000);
 
