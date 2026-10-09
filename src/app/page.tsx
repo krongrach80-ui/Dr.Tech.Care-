@@ -16,6 +16,12 @@ import {
   WifiOff,
   ArrowRight,
   ShieldCheck,
+  RotateCcw,
+  LogOut,
+  Calendar,
+  User,
+  Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 import { KioskShell } from "@/components/kiosk/KioskShell";
 import { BigButton } from "@/components/kiosk/BigButton";
@@ -61,20 +67,21 @@ function getClockServerSnapshot(): number {
 }
 
 export type KioskFlowState =
-  | "home" // หน้าแรก: โครงสร้าง Strong Care (โลโก้ -> ชื่อระบบ -> 2 ปุ่มใหญ่ -> ปุ่มบุคลากร)
-  | "login_face_scan" // สแกนใบหน้าเข้าสู่ระบบ (ผู้ป่วยเก่า)
-  | "login_confirm" // ยืนยันข้อมูลชื่อ-นามสกุล
+  | "home" // 1. หน้าแรก (โลโก้ -> ชื่อระบบ -> 2 ปุ่มใหญ่ -> ปุ่มบุคลากร)
+  | "login_face_scan" // 2. สแกนใบหน้าเข้าสู่ระบบ (3-Step Liveness: มองตรง -> หันซ้าย -> หันขวา)
+  | "login_confirm" // 3. ยืนยันข้อมูล ("ใช่บัญชีนี้หรือไม่?")
+  | "patient_home" // 4. หน้าหลักคนไข้หลัง Login สำเร็จ (Dashboard คนไข้)
   | "register_consent" // สมัครใหม่: ความยินยอม PDPA
-  | "register_face_scan" // สมัครใหม่: สแกนใบหน้า 3 ทิศทาง
-  | "register_form" // สมัครใหม่: กรอกชื่อ-นามสกุล-อายุ
-  | "register_success" // สมัครสำเร็จ
-  | "verify_daily_tasks" // ตรวจสอบภารกิจประจำวัน
-  | "checklist_intro" // Checklist เตรียมความพร้อม (5 วินาที)
-  | "mission_exercise" // ภารกิจที่ 1: กายภาพบำบัด
-  | "checklist_mid" // Checklist ตรวจสอบข้อ 1 ผ่าน (3 วินาที)
-  | "mission_quiz" // ภารกิจที่ 2: มินิเกมฝึกสมอง
-  | "checklist_done" // Checklist สำเร็จครบทุกข้อ
-  | "completion"; // สิ้นสุดการฝึก สรุปผล + คำแนะนำแพทย์
+  | "register_face_scan" // สมัครใหม่: สแกนใบหน้า 3 มุม
+  | "register_duplicate_warn" // สมัครใหม่: แจ้งเตือนพบใบหน้าซ้ำในระบบ
+  | "register_form" // สมัครใหม่: กรอกชื่อ-นามสกุล-อายุ (Thai Keyboard / NumPad)
+  | "register_success" // สมัครใหม่: สำเร็จ
+  | "checklist_intro" // 5. แผนการฝึก: Checklist ก่อนเริ่ม (5 วินาที)
+  | "mission_exercise" // 6. ภารกิจที่ 1: กายภาพบำบัด
+  | "checklist_mid" // 7. Checklist ติ๊กข้อ 1 สำเร็จ (3 วินาที)
+  | "mission_quiz" // 8. ภารกิจที่ 2: มินิเกมฝึกสมอง
+  | "checklist_done" // 9. Checklist ติ๊กครบทุกข้อ
+  | "completion"; // 10. สรุปผลการฝึก + คำแนะนำแพทย์
 
 export default function KioskPage() {
   const router = useRouter();
@@ -89,17 +96,18 @@ export default function KioskPage() {
   const [regAge, setRegAge] = useState("68");
   const [activeInput, setActiveInput] = useState<"none" | "firstName" | "lastName" | "age">("none");
 
-  // Face Scan Challenge Step
-  const [faceChallengeStep, setFaceChallengeStep] = useState<"center" | "left" | "right">("center");
+  // Login & Registration Liveness Challenge Step (center -> left -> right)
+  const [loginLivenessStep, setLoginLivenessStep] = useState<"center" | "left" | "right">("center");
+  const [regLivenessStep, setRegLivenessStep] = useState<"center" | "left" | "right">("center");
 
-  // Daily Exercise Simulation State
+  // Daily Exercise State
   const [exerciseReps, setExerciseReps] = useState(0);
   const targetReps = 5;
 
-  // Daily Quiz Simulation State
+  // Daily Quiz State
   const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<number | null>(null);
 
-  // Auto-advance Timer Counter
+  // Auto-advance & Auto-logout countdown timer
   const [countdown, setCountdown] = useState<number>(0);
 
   // Reset to Home
@@ -108,7 +116,8 @@ export default function KioskPage() {
     setCountdown(0);
     setExerciseReps(0);
     setSelectedQuizAnswer(null);
-    setFaceChallengeStep("center");
+    setLoginLivenessStep("center");
+    setRegLivenessStep("center");
     resetKioskState({ redirectToHome: false });
   };
 
@@ -118,10 +127,11 @@ export default function KioskPage() {
     else if (nextState === "checklist_mid") setCountdown(3);
     else if (nextState === "register_success") setCountdown(3);
     else if (nextState === "completion") setCountdown(10);
+    else if (nextState === "patient_home") setCountdown(60); // 60s idle logout on patient dashboard
     else setCountdown(0);
   };
 
-  // Auto-advance countdown interval
+  // Countdown timer for auto-advance / auto-logout
   useEffect(() => {
     if (countdown <= 0) return undefined;
 
@@ -135,7 +145,7 @@ export default function KioskPage() {
             transitionTo("mission_quiz");
           } else if (state === "register_success") {
             transitionTo("home");
-          } else if (state === "completion") {
+          } else if (state === "completion" || state === "patient_home") {
             handleFullReset();
           }
           return 0;
@@ -157,7 +167,7 @@ export default function KioskPage() {
         {state === "home" && (
           <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
             
-            {/* สถานะระบบด้านบนสุด (โปร่งตา สบายตา) */}
+            {/* สถานะระบบด้านบนสุด */}
             <div className="w-full flex items-center justify-between text-xs font-medium text-[#3D5A5A] pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
               <div className="flex items-center gap-1.5 whitespace-nowrap">
                 {isOnline ? (
@@ -182,7 +192,7 @@ export default function KioskPage() {
               </div>
             </div>
 
-            {/* ส่วนตรงกลาง: โลโก้ + ข้อความ + 2 ปุ่มใหญ่ (เว้นระยะห่างกำลังดี ไม่เบียด) */}
+            {/* ส่วนตรงกลาง: โลโก้ + ข้อความ + 2 ปุ่มใหญ่ */}
             <div className="w-full flex flex-col items-center text-center my-auto py-2">
               
               {/* โลโก้ขนาดพอดี (72x72px) สไตล์ Strong Care */}
@@ -206,10 +216,13 @@ export default function KioskPage() {
               {/* ส่วนปุ่มใหญ่ 2 ปุ่ม (สูง >= 68-74px เว้นระยะห่างชัดเจน 20px) */}
               <div className="w-full flex flex-col gap-4 sm:gap-5 mt-6 sm:mt-7">
                 
-                {/* ปุ่มหลัก (Primary): สแกนใบหน้าเพื่อเข้าสู่ระบบ */}
+                {/* ปุ่มหลัก: สแกนใบหน้าเพื่อเข้าสู่ระบบ */}
                 <button
                   type="button"
-                  onClick={() => transitionTo("login_face_scan")}
+                  onClick={() => {
+                    setLoginLivenessStep("center");
+                    transitionTo("login_face_scan");
+                  }}
                   className="
                     w-full min-h-[68px] sm:min-h-[74px] px-5 py-3
                     rounded-2xl
@@ -235,7 +248,7 @@ export default function KioskPage() {
                   </div>
                 </button>
 
-                {/* ปุ่มรอง (Secondary): สมัครบัญชีใหม่ */}
+                {/* ปุ่มรอง: สมัครบัญชีใหม่ */}
                 <button
                   type="button"
                   onClick={() => transitionTo("register_consent")}
@@ -266,7 +279,7 @@ export default function KioskPage() {
               </div>
             </div>
 
-            {/* ส่วนด้านล่างสุด: ปุ่มเล็ก “สำหรับบุคลากร” และคำเตือนทางการแพทย์ */}
+            {/* ส่วนด้านล่างสุด: ปุ่มเล็ก “สำหรับบุคลากร” */}
             <div className="w-full flex flex-col items-center pt-3 pb-1 flex-shrink-0">
               <button
                 type="button"
@@ -291,173 +304,394 @@ export default function KioskPage() {
         )}
 
         {/* ========================================================================= */}
-        {/* 2. สแกนใบหน้าเข้าสู่ระบบ (LOGIN FACE SCAN - ผู้ป่วยเดิม)                   */}
+        {/* 2. สแกนใบหน้าเข้าสู่ระบบ (3-STEP LIVENESS: มองตรง -> หันซ้าย -> หันขวา)     */}
         {/* ========================================================================= */}
         {state === "login_face_scan" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-lg mx-auto py-2">
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
             
-            {/* ปุ่มย้อนกลับด้านบน */}
-            <div className="w-full flex items-center justify-between pb-3">
+            {/* แถบย้อนกลับด้านบน */}
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
               <button
                 type="button"
                 onClick={handleFullReset}
-                className="px-4 py-2 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-sm flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                className="px-3.5 py-1.5 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
-                <span>กลับหน้าแรก</span>
+                <span>ยกเลิก / หน้าแรก</span>
               </button>
-              <span className="text-sm font-bold text-[#1E8A4C]">เข้าสู่ระบบ</span>
+              <span className="text-xs font-bold text-[#1E8A4C]">เข้าสู่ระบบด้วยใบหน้า</span>
             </div>
 
-            {/* กล้องสแกนใบหน้าจัดตำแหน่ง */}
-            <div className="w-full flex flex-col items-center my-auto">
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-[#0B2B2B] text-center mb-2">
+            <div className="w-full flex flex-col items-center text-center my-auto py-1">
+              <h2 className="text-xl sm:text-2xl font-extrabold text-[#0B2B2B] mb-0.5">
                 สแกนใบหน้าเพื่อเข้าสู่ระบบ
               </h2>
-              <p className="text-base text-[#3D5A5A] text-center mb-6 max-w-xs">
-                กรุณานั่งตรงและมองที่กล้องด้านบนเพื่อตรวจสอบใบหน้า
-              </p>
 
-              <div className="w-full max-w-sm h-72 sm:h-80 rounded-3xl overflow-hidden shadow-xl border-4 border-[#1E8A4C]/30 bg-slate-900 relative">
-                <CameraMirror scanTitle="กำลังค้นหาใบหน้า..." className="w-full h-full" />
+              {/* Liveness 3-Step Progress Indicators */}
+              <div className="flex items-center gap-2 my-2.5">
+                <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                  loginLivenessStep === "center"
+                    ? "bg-[#1E8A4C] text-white shadow-sm ring-2 ring-[#1E8A4C]/30"
+                    : "bg-emerald-100 text-[#1E8A4C]"
+                }`}>
+                  <span>1. มองตรง</span>
+                  {loginLivenessStep !== "center" && <CheckCircle2 className="w-3.5 h-3.5 inline ml-0.5" />}
+                </div>
+
+                <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                  loginLivenessStep === "left"
+                    ? "bg-[#1E8A4C] text-white shadow-sm ring-2 ring-[#1E8A4C]/30"
+                    : loginLivenessStep === "right"
+                    ? "bg-emerald-100 text-[#1E8A4C]"
+                    : "bg-slate-200/70 text-[#536E80]"
+                }`}>
+                  <span>2. หันซ้าย</span>
+                  {loginLivenessStep === "right" && <CheckCircle2 className="w-3.5 h-3.5 inline ml-0.5" />}
+                </div>
+
+                <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                  loginLivenessStep === "right"
+                    ? "bg-[#1E8A4C] text-white shadow-sm ring-2 ring-[#1E8A4C]/30"
+                    : "bg-slate-200/70 text-[#536E80]"
+                }`}>
+                  <span>3. หันขวา</span>
+                </div>
               </div>
 
-              {/* ปุ่มจำลองสแกนใบหน้าสำเร็จ */}
-              <div className="w-full max-w-sm mt-8">
-                <BigButton
-                  variant="strong-primary"
-                  className="!min-h-[64px] !text-xl"
-                  onClick={() => transitionTo("login_confirm")}
-                  icon={<CheckCircle2 className="w-6 h-6" />}
-                >
-                  ตรวจพบใบหน้า (จำลองเข้าระบบ)
-                </BigButton>
+              {/* ข้อความบอกผู้ใช้ในขั้นตอนนี้ */}
+              <p className="text-xs sm:text-sm font-semibold text-[#1E8A4C] mb-2 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200/60">
+                {loginLivenessStep === "center" && "👉 ขั้นที่ 1/3: นั่งตรง มองที่กล้องด้านบน"}
+                {loginLivenessStep === "left" && "👉 ขั้นที่ 2/3: หันหน้าไปทางซ้ายของท่านช้า ๆ"}
+                {loginLivenessStep === "right" && "👉 ขั้นที่ 3/3: หันหน้าไปทางขวาของท่านช้า ๆ"}
+              </p>
+
+              {/* กรอบกล้องสแกนใบหน้าพร้อม Error Handling และโหมดจำลอง */}
+              <div className="w-full h-64 sm:h-72 rounded-3xl overflow-hidden shadow-xl border-3 border-[#1E8A4C]/30 bg-slate-900 relative flex-shrink-0">
+                <CameraMirror
+                  isScanning={true}
+                  scanTitle={
+                    loginLivenessStep === "center"
+                      ? "มองตรงที่กล้อง"
+                      : loginLivenessStep === "left"
+                      ? "หันหน้าไปทางซ้ายช้าๆ"
+                      : "หันหน้าไปทางขวาช้าๆ"
+                  }
+                  className="w-full h-full"
+                />
+              </div>
+
+              {/* ปุ่มควบคุมขั้นตอน Liveness */}
+              <div className="w-full flex flex-col gap-2 mt-3">
+                {loginLivenessStep === "center" && (
+                  <BigButton
+                    variant="strong-primary"
+                    className="!min-h-[58px] !text-base"
+                    onClick={() => setLoginLivenessStep("left")}
+                    icon={<CheckCircle2 className="w-5 h-5" />}
+                  >
+                    มองตรงแล้ว (ไปขั้นที่ 2 หันซ้าย)
+                  </BigButton>
+                )}
+
+                {loginLivenessStep === "left" && (
+                  <BigButton
+                    variant="strong-primary"
+                    className="!min-h-[58px] !text-base"
+                    onClick={() => setLoginLivenessStep("right")}
+                    icon={<CheckCircle2 className="w-5 h-5" />}
+                  >
+                    หันซ้ายแล้ว (ไปขั้นที่ 3 หันขวา)
+                  </BigButton>
+                )}
+
+                {loginLivenessStep === "right" && (
+                  <BigButton
+                    variant="strong-primary"
+                    className="!min-h-[58px] !text-base"
+                    onClick={() => transitionTo("login_confirm")}
+                    icon={<CheckCircle2 className="w-5 h-5" />}
+                  >
+                    สแกนครบ 3 มุม (ตรวจสอบข้อมูล)
+                  </BigButton>
+                )}
+
+                {/* ปุ่มจำลองเข้าระบบด่วน / ปุ่มเริ่มใหม่ */}
+                <div className="flex items-center gap-2 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setLoginLivenessStep("center")}
+                    className="flex-1 py-2 rounded-xl bg-white border border-[#0B2B2B]/20 text-[#0B2B2B] text-xs font-semibold flex items-center justify-center gap-1 shadow-sm hover:bg-slate-50 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-[#3D5A5A]" />
+                    <span>เริ่มสแกนใหม่</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => transitionTo("login_confirm")}
+                    className="flex-1 py-2 rounded-xl bg-emerald-50 border border-emerald-300 text-[#1E8A4C] text-xs font-bold flex items-center justify-center gap-1 shadow-sm hover:bg-emerald-100 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>จำลองตรวจพบใบหน้า</span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="text-center text-xs text-[#527070] mt-auto">
-              หากสแกนไม่ผ่าน กรุณาติดต่อเจ้าหน้าที่คลินิก
+            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
+              ระบบแปลงใบหน้าเป็นรหัสเวกเตอร์ตัวเลข ไม่บันทึกภาพถ่ายจริงตาม PDPA
             </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* 3. ยืนยันข้อมูลชื่อ-นามสกุล (LOGIN CONFIRM)                               */}
+        {/* 3. ยืนยันข้อมูลคนไข้ ("ใช่บัญชีนี้หรือไม่?")                               */}
         {/* ========================================================================= */}
         {state === "login_confirm" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-lg mx-auto py-2">
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
             
-            <div className="w-full flex items-center justify-between pb-3">
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
               <button
                 type="button"
                 onClick={() => transitionTo("login_face_scan")}
-                className="px-4 py-2 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-sm flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                className="px-3.5 py-1.5 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
                 <span>สแกนใหม่</span>
               </button>
-              <span className="text-sm font-bold text-[#1E8A4C]">ยืนยันตัวตน</span>
+              <span className="text-xs font-bold text-[#1E8A4C]">ยืนยันตัวตน</span>
             </div>
 
-            <div className="w-full flex flex-col items-center my-auto">
-              <div className="w-20 h-20 rounded-full bg-[#1E8A4C]/15 text-[#1E8A4C] flex items-center justify-center mb-4">
-                <CheckCircle2 className="w-12 h-12" />
+            <div className="w-full flex flex-col items-center text-center my-auto py-2">
+              <div className="w-16 h-16 rounded-full bg-[#1E8A4C]/15 text-[#1E8A4C] flex items-center justify-center mb-2">
+                <CheckCircle2 className="w-10 h-10" />
               </div>
 
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-[#0B2B2B] text-center mb-2">
+              <h2 className="text-xl sm:text-2xl font-extrabold text-[#0B2B2B] mb-0.5">
                 ตรวจพบข้อมูลผู้ป่วย
               </h2>
-              <p className="text-base text-[#3D5A5A] text-center mb-6">
-                กรุณาตรวจสอบชื่อของท่านก่อนเริ่มการฝึก
+              <p className="text-xs text-[#3D5A5A] mb-3">
+                กรุณาตรวจสอบชื่อของท่านก่อนเข้าสู่ระบบ
               </p>
 
               {/* การ์ดข้อมูลผู้ป่วย */}
-              <div className="w-full bg-white rounded-3xl p-6 sm:p-8 border-2 border-[#1E8A4C]/20 shadow-lg text-center flex flex-col gap-3">
-                <span className="text-sm font-bold text-[#1E8A4C] uppercase tracking-wider">
+              <div className="w-full bg-white rounded-2xl p-4 sm:p-5 border-2 border-[#1E8A4C]/30 shadow-md flex flex-col gap-2">
+                <span className="text-xs font-bold text-[#1E8A4C] uppercase tracking-wider">
                   ชื่อ-นามสกุลผู้ป่วย
                 </span>
-                <p className="text-3xl sm:text-4xl font-black text-[#0B2B2B]">
+                <p className="text-2xl sm:text-3xl font-black text-[#0B2B2B]">
                   {maskName("ประเสริฐ", "รักษ์ดี")}
                 </p>
-                <div className="flex items-center justify-center gap-4 text-sm font-semibold text-[#3D5A5A] pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-center gap-2.5 text-xs font-semibold text-[#3D5A5A] pt-2 border-t border-slate-100">
+                  <span>เพศ ชาย</span>
+                  <span>•</span>
                   <span>อายุ 72 ปี</span>
                   <span>•</span>
                   <span>HN: 69-00124</span>
                   <span>•</span>
-                  <span className="text-[#1E8A4C]">นัดหมายวันนี้</span>
+                  <span className="text-[#1E8A4C] font-bold">มีนัดวันนี้</span>
                 </div>
               </div>
 
+              {/* คำถามใหญ่ "ใช่บัญชีนี้หรือไม่?" */}
+              <div className="w-full bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 my-3">
+                <p className="text-base font-extrabold text-[#1E8A4C]">
+                  ใช่บัญชีของท่านหรือไม่?
+                </p>
+              </div>
+
               {/* ปุ่มยืนยัน / ปฏิเสธ */}
-              <div className="w-full flex flex-col gap-4 mt-8">
+              <div className="w-full flex flex-col gap-2.5">
                 <BigButton
                   variant="strong-primary"
-                  className="!min-h-[68px] !text-xl"
-                  onClick={() => transitionTo("verify_daily_tasks")}
-                  icon={<ArrowRight className="w-6 h-6" />}
+                  className="!min-h-[64px] !text-lg"
+                  onClick={() => transitionTo("patient_home")}
+                  icon={<ArrowRight className="w-5 h-5" />}
                 >
-                  ถูกต้อง (เริ่มทำภารกิจ)
+                  ใช่ (เข้าสู่หน้าหลักของฉัน)
                 </BigButton>
 
                 <button
                   type="button"
-                  onClick={handleFullReset}
-                  className="w-full py-4 text-base font-bold text-[#3D5A5A] hover:text-[#0B2B2B] transition-colors"
+                  onClick={() => transitionTo("login_face_scan")}
+                  className="w-full py-2.5 rounded-xl bg-white border border-[#0B2B2B]/20 text-xs sm:text-sm font-bold text-[#3D5A5A] hover:text-[#0B2B2B] transition-colors cursor-pointer"
                 >
-                  ไม่ใช่ข้อมูลของฉัน (ยกเลิก)
+                  ไม่ใช่ (ลองสแกนใหม่)
                 </button>
               </div>
             </div>
 
-            <div className="text-center text-xs text-[#527070] mt-auto">
-              ระบบรักษาความปลอดภัยตามมาตรฐาน PDPA
+            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
+              หากลองสแกนแล้วยังไม่ตรง กรุณาติดต่อเจ้าหน้าที่คลินิก
             </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* 4. ผู้ป่วยใหม่: ความยินยอม PDPA (REGISTER CONSENT)                         */}
+        {/* 4. หน้าหลักคนไข้หลัง LOGIN สำเร็จ (PATIENT DASHBOARD)                      */}
         {/* ========================================================================= */}
-        {state === "register_consent" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-lg mx-auto py-2">
+        {state === "patient_home" && (
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
             
-            <div className="w-full flex items-center justify-between pb-3">
+            {/* ส่วนหัว: ข้อมูลคนไข้ + ปุ่มออกจากระบบ */}
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-[#1E8A4C] text-white flex items-center justify-center font-bold text-xs">
+                  <User className="w-4 h-4" />
+                </div>
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-bold text-[#0B2B2B] leading-tight">
+                    คุณ{maskName("ประเสริฐ", "รักษ์ดี")}
+                  </span>
+                  <span className="text-[10px] text-[#3D5A5A]">HN: 69-00124 (อายุ 72 ปี)</span>
+                </div>
+              </div>
+
+              {/* ปุ่มออกจากระบบ + ตัวนับเวลาถอยหลัง Auto Logout */}
               <button
                 type="button"
                 onClick={handleFullReset}
-                className="px-4 py-2 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-sm flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>ออก ({countdown}s)</span>
+              </button>
+            </div>
+
+            {/* ส่วนเนื้อหาหลัก: ข้อมูลนักกายภาพ และ แผนการฝึกวันนี้ */}
+            <div className="w-full flex flex-col my-auto py-2">
+              
+              {/* การ์ดนักกายภาพบำบัดผู้ดูแล */}
+              <div className="w-full bg-white rounded-2xl p-3.5 border border-slate-200 shadow-sm flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-[#1E8A4C] flex items-center justify-center font-bold flex-shrink-0">
+                  <HeartPulse className="w-5 h-5" />
+                </div>
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-bold text-[#1E8A4C]">นักกายภาพบำบัดผู้ดูแล</span>
+                  <span className="text-sm font-extrabold text-[#0B2B2B]">กภ. ปิยะ สมบูรณ์</span>
+                  <span className="text-[10px] text-[#3D5A5A]">คลินิกกายภาพบำบัดฟื้นฟูข้อต่อและกล้ามเนื้อ</span>
+                </div>
+              </div>
+
+              {/* หัวข้อแผนการฝึกวันนี้ */}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#0B2B2B]">
+                  <Calendar className="w-4 h-4 text-[#1E8A4C]" />
+                  <span>แผนการฝึกวันนี้ (2 รายการ)</span>
+                </div>
+                <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                  พร้อมเริ่มฝึก
+                </span>
+              </div>
+
+              {/* รายการแผนการฝึก 2 ภารกิจ */}
+              <div className="w-full flex flex-col gap-2.5">
+                {/* ภารกิจที่ 1: กายภาพบำบัด */}
+                <div className="p-3.5 bg-white rounded-2xl border-2 border-[#1E8A4C]/30 shadow-sm flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#1E8A4C] flex items-center justify-center font-extrabold text-sm">
+                      1
+                    </div>
+                    <div className="flex flex-col text-left">
+                      <span className="text-sm font-bold text-[#0B2B2B]">กายภาพบำบัด: ยกแขนบริหารไหล่</span>
+                      <span className="text-[11px] text-[#3D5A5A]">เป้าหมาย: 5 ครั้ง (รักษามุม 90°)</span>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-[#1E8A4C] bg-emerald-50 px-2 py-1 rounded-lg">
+                    รอทำ
+                  </span>
+                </div>
+
+                {/* ภารกิจที่ 2: มินิเกมฝึกสมอง */}
+                <div className="p-3.5 bg-white rounded-2xl border-2 border-[#6FD67F]/40 shadow-sm flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-[#6FD67F]/20 text-[#0B2B2B] flex items-center justify-center font-extrabold text-sm">
+                      2
+                    </div>
+                    <div className="flex flex-col text-left">
+                      <span className="text-sm font-bold text-[#0B2B2B]">ฝึกสมอง: ทายภาพผลไม้เพื่อสุขภาพ</span>
+                      <span className="text-[11px] text-[#3D5A5A]">กระตุ้นความจำและสมาธิ 1 ข้อ</span>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-[#0B2B2B] bg-slate-100 px-2 py-1 rounded-lg">
+                    รอทำ
+                  </span>
+                </div>
+              </div>
+
+              {/* ปุ่มใหญ่หลัก: เริ่มทำกายภาพบำบัด */}
+              <div className="w-full mt-4">
+                <BigButton
+                  variant="strong-primary"
+                  className="!min-h-[68px] sm:!min-h-[74px] !text-xl"
+                  onClick={() => transitionTo("checklist_intro")}
+                  icon={<ArrowRight className="w-6 h-6" />}
+                >
+                  เริ่มทำกายภาพบำบัดวันนี้
+                </BigButton>
+              </div>
+            </div>
+
+            {/* ส่วนด้านล่างสุด */}
+            <div className="w-full flex items-center justify-between pt-2 border-t border-[#0B2B2B]/10 text-[11px] text-[#527070] flex-shrink-0">
+              <span>หากไม่แตะจอ ระบบจะออกจากระบบอัตโนมัติ</span>
+              <button
+                type="button"
+                onClick={() => setCountdown(60)}
+                className="text-xs font-bold text-[#1E8A4C] hover:underline cursor-pointer"
+              >
+                + เพิ่มเวลา
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* 5. ผู้ป่วยใหม่: ความยินยอม PDPA (REGISTER CONSENT)                         */}
+        {/* ========================================================================= */}
+        {state === "register_consent" && (
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
+            
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
+              <button
+                type="button"
+                onClick={handleFullReset}
+                className="px-3.5 py-1.5 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
                 <span>กลับหน้าแรก</span>
               </button>
-              <span className="text-sm font-bold text-[#1E8A4C]">สมัครบัญชีใหม่</span>
+              <span className="text-xs font-bold text-[#1E8A4C]">สมัครบัญชีใหม่</span>
             </div>
 
-            <div className="w-full flex flex-col items-center my-auto">
-              <div className="w-16 h-16 rounded-2xl bg-[#6FD67F]/20 text-[#1E8A4C] flex items-center justify-center mb-4">
-                <ShieldCheck className="w-9 h-9" />
+            <div className="w-full flex flex-col items-center my-auto py-1">
+              <div className="w-14 h-14 rounded-2xl bg-[#6FD67F]/20 text-[#1E8A4C] flex items-center justify-center mb-2">
+                <ShieldCheck className="w-8 h-8" />
               </div>
 
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-[#0B2B2B] text-center mb-2">
+              <h2 className="text-xl font-extrabold text-[#0B2B2B] text-center mb-1">
                 ความยินยอมเก็บข้อมูล (PDPA)
               </h2>
-              <p className="text-sm text-[#3D5A5A] text-center mb-4">
-                ระบบจะเก็บภาพใบหน้าเพื่อใช้ในการเข้าสู่ระบบครั้งถัดไปอย่างปลอดภัย
+              <p className="text-xs text-[#3D5A5A] text-center mb-2.5">
+                ระบบจะเก็บค่าตัวเลขเวกเตอร์ใบหน้า เพื่อใช้เข้าสู่ระบบอย่างปลอดภัย
               </p>
 
-              <div className="w-full bg-white rounded-2xl p-5 border border-slate-200 text-sm text-[#0B2B2B] leading-relaxed space-y-2.5 max-h-56 overflow-y-auto shadow-inner">
+              <div className="w-full bg-white rounded-2xl p-3.5 border border-slate-200 text-xs text-[#0B2B2B] leading-relaxed space-y-2 max-h-48 overflow-y-auto shadow-inner text-left">
                 <p className="font-bold text-[#1E8A4C]">วัตถุประสงค์ในการประมวลผลข้อมูลชีวมิติ:</p>
-                <p>1. ข้อมูลใบหน้าจะถูกแปลงเป็นค่าตัวเลขคณิตศาสตร์ (Vector Embedding) ทันทีบนอุปกรณ์</p>
+                <p>1. ข้อมูลใบหน้าจะถูกแปลงเป็นค่าตัวเลขคณิตศาสตร์ (128-d Vector Embedding) ทันทีบนอุปกรณ์</p>
                 <p>2. ระบบจะไม่บันทึกภาพถ่ายใบหน้าจริงลงในเซิร์ฟเวอร์</p>
                 <p>3. ข้อมูลจะถูกใช้สำหรับการยืนยันตัวตนและการฝึกกายภาพบำบัดของท่านเท่านั้น</p>
               </div>
 
-              <div className="w-full flex flex-col gap-4 mt-8">
+              <div className="w-full flex flex-col gap-2.5 mt-4">
                 <BigButton
                   variant="strong-primary"
-                  className="!min-h-[68px] !text-xl"
-                  onClick={() => transitionTo("register_face_scan")}
-                  icon={<CheckCircle2 className="w-6 h-6" />}
+                  className="!min-h-[58px] !text-base"
+                  onClick={() => {
+                    setRegLivenessStep("center");
+                    transitionTo("register_face_scan");
+                  }}
+                  icon={<CheckCircle2 className="w-5 h-5" />}
                 >
                   ยินยอมและสแกนใบหน้า
                 </BigButton>
@@ -465,132 +699,203 @@ export default function KioskPage() {
                 <button
                   type="button"
                   onClick={handleFullReset}
-                  className="w-full py-3.5 text-base font-bold text-[#3D5A5A] hover:text-[#0B2B2B] transition-colors"
+                  className="w-full py-2.5 text-xs font-bold text-[#3D5A5A] hover:text-[#0B2B2B] transition-colors cursor-pointer"
                 >
                   ไม่ยินยอม (กลับหน้าแรก)
                 </button>
               </div>
             </div>
 
-            <div className="text-center text-xs text-[#527070] mt-auto">
-              ท่านสามารถขอยกเลิกหรือลบข้อมูลได้ตลอดเวลา
+            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
+              ท่านสามารถขอยกเลิกหรือลบข้อมูลใบหน้าได้ตลอดเวลา
             </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* 5. ผู้ป่วยใหม่: สแกนใบหน้า 3 มุม (REGISTER FACE SCAN)                       */}
+        {/* 6. ผู้ป่วยใหม่: สแกนใบหน้า 3 มุม (REGISTER FACE SCAN)                       */}
         {/* ========================================================================= */}
         {state === "register_face_scan" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-lg mx-auto py-2">
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
             
-            <div className="w-full flex items-center justify-between pb-3">
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
               <button
                 type="button"
                 onClick={() => transitionTo("register_consent")}
-                className="px-4 py-2 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-sm flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                className="px-3.5 py-1.5 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
                 <span>ย้อนกลับ</span>
               </button>
-              <span className="text-sm font-bold text-[#1E8A4C]">บันทึกใบหน้า 3 มุม</span>
+              <span className="text-xs font-bold text-[#1E8A4C]">บันทึกใบหน้า 3 มุม</span>
             </div>
 
-            <div className="w-full flex flex-col items-center my-auto">
-              <h2 className="text-2xl font-extrabold text-[#0B2B2B] text-center mb-1">
+            <div className="w-full flex flex-col items-center text-center my-auto py-1">
+              <h2 className="text-xl font-extrabold text-[#0B2B2B] mb-1">
                 สแกนใบหน้าเพื่อบันทึกข้อมูล
               </h2>
               
-              {/* ขั้นตอนสแกน 3 ทิศทาง */}
-              <div className="flex items-center gap-3 my-3">
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${faceChallengeStep === "center" ? "bg-[#1E8A4C] text-white" : "bg-emerald-100 text-[#1E8A4C]"}`}>
+              {/* 3 Step Indicators */}
+              <div className="flex items-center gap-2 my-2">
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${regLivenessStep === "center" ? "bg-[#1E8A4C] text-white" : "bg-emerald-100 text-[#1E8A4C]"}`}>
                   1. มองตรง
                 </span>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${faceChallengeStep === "left" ? "bg-[#1E8A4C] text-white" : "bg-slate-100 text-[#3D5A5A]"}`}>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${regLivenessStep === "left" ? "bg-[#1E8A4C] text-white" : regLivenessStep === "right" ? "bg-emerald-100 text-[#1E8A4C]" : "bg-slate-200 text-[#3D5A5A]"}`}>
                   2. หันซ้าย
                 </span>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${faceChallengeStep === "right" ? "bg-[#1E8A4C] text-white" : "bg-slate-100 text-[#3D5A5A]"}`}>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${regLivenessStep === "right" ? "bg-[#1E8A4C] text-white" : "bg-slate-200 text-[#3D5A5A]"}`}>
                   3. หันขวา
                 </span>
               </div>
 
-              <div className="w-full max-w-sm h-64 sm:h-72 rounded-3xl overflow-hidden shadow-xl border-4 border-[#1E8A4C]/30 bg-slate-900 relative">
+              <div className="w-full h-56 sm:h-64 rounded-3xl overflow-hidden shadow-xl border-3 border-[#1E8A4C]/30 bg-slate-900 relative flex-shrink-0">
                 <CameraMirror
+                  isScanning={true}
                   scanTitle={
-                    faceChallengeStep === "center"
+                    regLivenessStep === "center"
                       ? "กรุณามองตรงที่กล้อง"
-                      : faceChallengeStep === "left"
-                      ? "กรุณาหันหน้าไปทางซ้ายเล็กน้อย"
-                      : "กรุณาหันหน้าไปทางขวาเล็กน้อย"
+                      : regLivenessStep === "left"
+                      ? "หันหน้าไปทางซ้ายช้าๆ"
+                      : "หันหน้าไปทางขวาช้าๆ"
                   }
                   className="w-full h-full"
                 />
               </div>
 
-              {/* ปุ่มจำลองเปลี่ยนมุม / ผ่านขั้นตอน */}
-              <div className="w-full max-w-sm flex flex-col gap-3 mt-6">
-                {faceChallengeStep === "center" && (
+              {/* ปุ่มบันทึกแต่ละมุม */}
+              <div className="w-full flex flex-col gap-2 mt-3">
+                {regLivenessStep === "center" && (
                   <BigButton
                     variant="strong-primary"
-                    className="!min-h-[64px] !text-lg"
-                    onClick={() => setFaceChallengeStep("left")}
+                    className="!min-h-[58px] !text-base"
+                    onClick={() => setRegLivenessStep("left")}
                   >
                     ถ่ายภาพมองตรง (ไปขั้นที่ 2)
                   </BigButton>
                 )}
-                {faceChallengeStep === "left" && (
+                {regLivenessStep === "left" && (
                   <BigButton
                     variant="strong-primary"
-                    className="!min-h-[64px] !text-lg"
-                    onClick={() => setFaceChallengeStep("right")}
+                    className="!min-h-[58px] !text-base"
+                    onClick={() => setRegLivenessStep("right")}
                   >
                     ถ่ายภาพหันซ้าย (ไปขั้นที่ 3)
                   </BigButton>
                 )}
-                {faceChallengeStep === "right" && (
+                {regLivenessStep === "right" && (
                   <BigButton
                     variant="strong-primary"
-                    className="!min-h-[64px] !text-lg"
+                    className="!min-h-[58px] !text-base"
                     onClick={() => transitionTo("register_form")}
-                    icon={<CheckCircle2 className="w-6 h-6" />}
+                    icon={<CheckCircle2 className="w-5 h-5" />}
                   >
                     สแกนครบ 3 มุม (กรอกข้อมูลต่อ)
                   </BigButton>
                 )}
+
+                {/* ปุ่มจำลองเตือนใบหน้าซ้ำ เพื่อทดสอบ Duplicate Detection */}
+                <button
+                  type="button"
+                  onClick={() => transitionTo("register_duplicate_warn")}
+                  className="text-[11px] text-amber-700 hover:underline mt-1 cursor-pointer"
+                >
+                  (ทดสอบ: จำลองพบใบหน้าซ้ำกับบัญชีเดิม)
+                </button>
               </div>
             </div>
 
-            <div className="text-center text-xs text-[#527070] mt-auto">
-              ระบบตรวจสอบความมีชีวิตจริง ป้องกันการใช้รูปถ่ายหลอก
+            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
+              ระบบตรวจสอบความมีชีวิตจริง ป้องกันการใช้ภาพถ่ายหลอก
             </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* 6. ผู้ป่วยใหม่: กรอกข้อมูลหน้าตู้ (REGISTER FORM)                           */}
+        {/* 6.1 สมัครใหม่: แจ้งเตือนพบใบหน้าซ้ำในระบบ (DUPLICATE DETECTION)             */}
+        {/* ========================================================================= */}
+        {state === "register_duplicate_warn" && (
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0 text-center">
+            
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
+              <button
+                type="button"
+                onClick={handleFullReset}
+                className="px-3 py-1 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] text-xs font-semibold cursor-pointer"
+              >
+                กลับหน้าแรก
+              </button>
+              <span className="text-xs font-bold text-amber-600">ตรวจพบใบหน้าซ้ำ</span>
+            </div>
+
+            <div className="w-full flex flex-col items-center my-auto py-2">
+              <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mb-3">
+                <AlertTriangle className="w-10 h-10" />
+              </div>
+
+              <h2 className="text-xl font-extrabold text-[#0B2B2B] mb-1">
+                คุณมีบัญชีในระบบอยู่แล้ว
+              </h2>
+              <p className="text-xs text-[#3D5A5A] mb-4">
+                ใบหน้านี้ตรงกับบัญชีของผู้ป่วยในระบบเรียบร้อยแล้ว<br />
+                ไม่จำเป็นต้องลงทะเบียนใหม่
+              </p>
+
+              <div className="w-full bg-white rounded-2xl p-4 border border-amber-200 shadow-sm text-left mb-4">
+                <span className="text-xs font-bold text-amber-800">บัญชีที่ตรงกัน:</span>
+                <p className="text-lg font-black text-[#0B2B2B] mt-1">{maskName("ประเสริฐ", "รักษ์ดี")}</p>
+                <span className="text-xs text-[#527070]">HN: 69-00124</span>
+              </div>
+
+              <div className="w-full flex flex-col gap-2">
+                <BigButton
+                  variant="strong-primary"
+                  className="!min-h-[60px] !text-lg"
+                  onClick={() => transitionTo("login_confirm")}
+                >
+                  เข้าสู่ระบบด้วยบัญชีนี้
+                </BigButton>
+
+                <button
+                  type="button"
+                  onClick={handleFullReset}
+                  className="py-2.5 text-xs font-bold text-[#3D5A5A] hover:text-[#0B2B2B] cursor-pointer"
+                >
+                  ยกเลิก (กลับหน้าแรก)
+                </button>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
+              ป้องกันการสร้างบัญชีซ้ำตามมาตรฐานความปลอดภัย
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* 7. ผู้ป่วยใหม่: กรอกข้อมูลหน้าตู้ (REGISTER FORM)                           */}
         {/* ========================================================================= */}
         {state === "register_form" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-lg mx-auto py-2">
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
             
-            <div className="w-full flex items-center justify-between pb-2">
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
               <button
                 type="button"
                 onClick={() => transitionTo("register_face_scan")}
-                className="px-4 py-2 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-sm flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                className="px-3.5 py-1.5 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
                 <span>ย้อนกลับ</span>
               </button>
-              <span className="text-sm font-bold text-[#1E8A4C]">กรอกข้อมูลผู้ป่วย</span>
+              <span className="text-xs font-bold text-[#1E8A4C]">กรอกข้อมูลผู้ป่วย</span>
             </div>
 
-            <div className="w-full flex flex-col items-center my-auto">
-              <h2 className="text-2xl font-extrabold text-[#0B2B2B] text-center mb-4">
+            <div className="w-full flex flex-col items-center my-auto py-1">
+              <h2 className="text-xl font-extrabold text-[#0B2B2B] text-center mb-2.5">
                 กรอกข้อมูลผู้ป่วยใหม่
               </h2>
 
-              {/* กล่องกรอกข้อมูล */}
-              <div className="w-full flex flex-col gap-3">
+              {/* กล่องเลือกกรอกข้อมูล */}
+              <div className="w-full flex flex-col gap-2">
                 <div
                   role="button"
                   tabIndex={0}
@@ -598,12 +903,12 @@ export default function KioskPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") setActiveInput("firstName");
                   }}
-                  className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${
+                  className={`p-2.5 rounded-xl border-2 transition-all cursor-pointer ${
                     activeInput === "firstName" ? "bg-white border-[#1E8A4C] shadow-md ring-2 ring-[#1E8A4C]/20" : "bg-white/90 border-slate-200"
                   }`}
                 >
-                  <label className="text-xs font-bold text-[#3D5A5A] block">ชื่อจริง</label>
-                  <p className="text-xl font-bold text-[#0B2B2B] mt-0.5">{regFirstName || "แตะเพื่อพิมพ์"}</p>
+                  <label className="text-[11px] font-bold text-[#3D5A5A] block">ชื่อจริง</label>
+                  <p className="text-base font-bold text-[#0B2B2B]">{regFirstName || "แตะเพื่อพิมพ์"}</p>
                 </div>
 
                 <div
@@ -613,12 +918,12 @@ export default function KioskPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") setActiveInput("lastName");
                   }}
-                  className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${
+                  className={`p-2.5 rounded-xl border-2 transition-all cursor-pointer ${
                     activeInput === "lastName" ? "bg-white border-[#1E8A4C] shadow-md ring-2 ring-[#1E8A4C]/20" : "bg-white/90 border-slate-200"
                   }`}
                 >
-                  <label className="text-xs font-bold text-[#3D5A5A] block">นามสกุล</label>
-                  <p className="text-xl font-bold text-[#0B2B2B] mt-0.5">{regLastName || "แตะเพื่อพิมพ์"}</p>
+                  <label className="text-[11px] font-bold text-[#3D5A5A] block">นามสกุล</label>
+                  <p className="text-base font-bold text-[#0B2B2B]">{regLastName || "แตะเพื่อพิมพ์"}</p>
                 </div>
 
                 <div
@@ -628,17 +933,17 @@ export default function KioskPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") setActiveInput("age");
                   }}
-                  className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${
+                  className={`p-2.5 rounded-xl border-2 transition-all cursor-pointer ${
                     activeInput === "age" ? "bg-white border-[#1E8A4C] shadow-md ring-2 ring-[#1E8A4C]/20" : "bg-white/90 border-slate-200"
                   }`}
                 >
-                  <label className="text-xs font-bold text-[#3D5A5A] block">อายุ (ปี)</label>
-                  <p className="text-xl font-bold text-[#0B2B2B] mt-0.5">{regAge || "แตะเพื่อพิมพ์"}</p>
+                  <label className="text-[11px] font-bold text-[#3D5A5A] block">อายุ (ปี)</label>
+                  <p className="text-base font-bold text-[#0B2B2B]">{regAge || "แตะเพื่อพิมพ์"}</p>
                 </div>
               </div>
 
-              {/* แป้นพิมพ์เสมือน (คีย์บอร์ดไทย / ปุ่มตัวเลข) */}
-              <div className="w-full mt-4 bg-white/90 p-3 rounded-2xl border border-slate-200 shadow-sm">
+              {/* แป้นพิมพ์เสมือนบนจอ */}
+              <div className="w-full mt-2.5 bg-white/95 p-2 rounded-2xl border border-slate-200 shadow-sm">
                 {activeInput === "age" ? (
                   <NumPad
                     onDigit={(d) => setRegAge((prev) => (prev.length < 3 ? prev + d : prev))}
@@ -663,10 +968,10 @@ export default function KioskPage() {
                 )}
               </div>
 
-              <div className="w-full mt-4">
+              <div className="w-full mt-2.5">
                 <BigButton
                   variant="strong-primary"
-                  className="!min-h-[64px] !text-xl"
+                  className="!min-h-[58px] !text-lg"
                   onClick={() => transitionTo("register_success")}
                 >
                   บันทึกข้อมูลและเสร็จสิ้น
@@ -674,33 +979,33 @@ export default function KioskPage() {
               </div>
             </div>
 
-            <div className="text-center text-xs text-[#527070] mt-auto">
+            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
               แตะที่ช่องเพื่อเลือกพิมพ์ชื่อหรืออายุ
             </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* 7. สมัครสำเร็จ (REGISTER SUCCESS)                                         */}
+        {/* 8. สมัครสำเร็จ (REGISTER SUCCESS)                                         */}
         {/* ========================================================================= */}
         {state === "register_success" && (
-          <div className="flex-1 flex flex-col justify-center items-center w-full max-w-lg mx-auto py-6 text-center">
-            <div className="w-24 h-24 rounded-full bg-[#1E8A4C]/15 text-[#1E8A4C] flex items-center justify-center mb-6 animate-bounce">
-              <CheckCircle2 className="w-16 h-16 stroke-[2.5]" />
+          <div className="flex-1 flex flex-col justify-center items-center w-full max-w-sm mx-auto py-6 text-center h-full min-h-0">
+            <div className="w-20 h-20 rounded-full bg-[#1E8A4C]/15 text-[#1E8A4C] flex items-center justify-center mb-4 animate-bounce">
+              <CheckCircle2 className="w-14 h-14 stroke-[2.5]" />
             </div>
 
-            <h2 className="text-3xl font-extrabold text-[#0B2B2B] mb-2">
+            <h2 className="text-2xl font-extrabold text-[#0B2B2B] mb-1">
               ลงทะเบียนสำเร็จเรียบร้อย
             </h2>
-            <p className="text-lg text-[#3D5A5A] mb-8">
+            <p className="text-sm text-[#3D5A5A] mb-6">
               ยินดีต้อนรับคุณ {regFirstName} {regLastName}<br />
-              ระบบบันทึกใบหน้าและข้อมูลของท่านแล้ว
+              ระบบบันทึกรหัสใบหน้าและข้อมูลของท่านแล้ว
             </p>
 
-            <div className="w-full max-w-sm">
+            <div className="w-full">
               <BigButton
                 variant="strong-primary"
-                className="!min-h-[68px] !text-xl"
+                className="!min-h-[64px] !text-lg"
                 onClick={handleFullReset}
               >
                 กลับสู่หน้าแรก ({countdown}s)
@@ -710,115 +1015,44 @@ export default function KioskPage() {
         )}
 
         {/* ========================================================================= */}
-        {/* 8. ตรวจสอบภารกิจประจำวัน (VERIFY DAILY TASKS)                             */}
-        {/* ========================================================================= */}
-        {state === "verify_daily_tasks" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-lg mx-auto py-2">
-            
-            <div className="w-full flex items-center justify-between pb-3">
-              <button
-                type="button"
-                onClick={handleFullReset}
-                className="px-4 py-2 rounded-xl bg-white border border-[#0B2B2B]/15 text-[#0B2B2B] font-semibold text-sm flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span>ออกจากระบบ</span>
-              </button>
-              <span className="text-sm font-bold text-[#1E8A4C]">ตารางประจำวัน</span>
-            </div>
-
-            <div className="w-full flex flex-col items-center my-auto">
-              <div className="w-16 h-16 rounded-2xl bg-[#1E8A4C]/15 text-[#1E8A4C] flex items-center justify-center mb-4">
-                <HeartPulse className="w-9 h-9" />
-              </div>
-
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-[#0B2B2B] text-center mb-2">
-                ภารกิจประจำวันของคุณ
-              </h2>
-              <p className="text-base text-[#3D5A5A] text-center mb-6">
-                แพทย์นักกายภาพบำบัดได้จัดชุดฝึกไว้ให้คุณ 2 รายการ
-              </p>
-
-              {/* การ์ดภารกิจ 2 ข้อ */}
-              <div className="w-full flex flex-col gap-4">
-                <div className="p-5 bg-white rounded-2xl border-2 border-[#1E8A4C]/25 shadow-md flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-100 text-[#1E8A4C] flex items-center justify-center font-black text-xl">
-                    1
-                  </div>
-                  <div className="flex flex-col text-left">
-                    <span className="text-lg font-bold text-[#0B2B2B]">กายภาพบำบัด: ยกแขนบริหารไหล่</span>
-                    <span className="text-xs text-[#3D5A5A]">เป้าหมาย: 5 ครั้ง (รักษามุมยก 90 องศา)</span>
-                  </div>
-                </div>
-
-                <div className="p-5 bg-white rounded-2xl border-2 border-[#6FD67F]/40 shadow-md flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-[#6FD67F]/20 text-[#0B2B2B] flex items-center justify-center font-black text-xl">
-                    2
-                  </div>
-                  <div className="flex flex-col text-left">
-                    <span className="text-lg font-bold text-[#0B2B2B]">ฝึกสมอง: ทายภาพผลไม้บำรุงสุขภาพ</span>
-                    <span className="text-xs text-[#3D5A5A]">กระตุ้นความจำและสมาธิ 1 ข้อ</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="w-full mt-8">
-                <BigButton
-                  variant="strong-primary"
-                  className="!min-h-[72px] !text-xl"
-                  onClick={() => transitionTo("checklist_intro")}
-                  icon={<ArrowRight className="w-6 h-6" />}
-                >
-                  เริ่มทำภารกิจที่ 1
-                </BigButton>
-              </div>
-            </div>
-
-            <div className="text-center text-xs text-[#527070] mt-auto">
-              กรุณาทำตามคำแนะนำของระบบเพื่อความปลอดภัย
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
         {/* 9. หน้า CHECKLIST (INTRO / MID / DONE)                                    */}
         {/* ========================================================================= */}
         {(state === "checklist_intro" || state === "checklist_mid" || state === "checklist_done") && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-lg mx-auto py-2">
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
             
-            <div className="w-full flex items-center justify-between pb-3">
-              <span className="text-sm font-bold text-[#3D5A5A]">ความคืบหน้ารายวัน</span>
-              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-100 text-[#1E8A4C]">
-                นับถอยหลัง {countdown} วินาที
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
+              <span className="text-xs font-bold text-[#3D5A5A]">ความคืบหน้าการฝึก</span>
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-[#1E8A4C]">
+                {countdown > 0 ? `นับถอยหลัง ${countdown} วิ` : "พร้อม"}
               </span>
             </div>
 
-            <div className="w-full flex flex-col items-center my-auto">
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-[#0B2B2B] text-center mb-6">
+            <div className="w-full flex flex-col items-center my-auto py-2">
+              <h2 className="text-xl sm:text-2xl font-extrabold text-[#0B2B2B] text-center mb-4">
                 รายการภารกิจวันนี้
               </h2>
 
-              <div className="w-full flex flex-col gap-4">
+              <div className="w-full flex flex-col gap-3">
                 {/* ข้อ 1: กายภาพ */}
-                <div className={`p-5 rounded-2xl border-2 flex items-center justify-between transition-all ${
+                <div className={`p-4 rounded-2xl border-2 flex items-center justify-between transition-all ${
                   state === "checklist_mid" || state === "checklist_done"
                     ? "bg-emerald-50 border-[#1E8A4C] shadow-md"
-                    : "bg-white border-[#1E8A4C]/40 shadow"
+                    : "bg-white border-[#1E8A4C]/40 shadow-sm"
                 }`}>
-                  <div className="flex items-center gap-3.5">
-                    <HeartPulse className="w-6 h-6 text-[#1E8A4C]" />
+                  <div className="flex items-center gap-3">
+                    <HeartPulse className="w-5 h-5 text-[#1E8A4C]" />
                     <div className="flex flex-col text-left">
-                      <span className="text-lg font-bold text-[#0B2B2B]">1. ท่ากายภาพบำบัดยกแขน</span>
-                      <span className="text-xs text-[#3D5A5A]">เป้าหมาย: ครบ 5 ครั้ง</span>
+                      <span className="text-base font-bold text-[#0B2B2B]">1. ท่ากายภาพบริหารไหล่</span>
+                      <span className="text-[11px] text-[#3D5A5A]">เป้าหมาย: ครบ 5 ครั้ง</span>
                     </div>
                   </div>
                   <div>
                     {state === "checklist_mid" || state === "checklist_done" ? (
-                      <span className="w-9 h-9 rounded-full bg-[#1E8A4C] text-white flex items-center justify-center font-bold">
+                      <span className="w-8 h-8 rounded-full bg-[#1E8A4C] text-white flex items-center justify-center font-bold text-sm">
                         ✓
                       </span>
                     ) : (
-                      <span className="w-9 h-9 rounded-full bg-slate-100 text-[#3D5A5A] flex items-center justify-center font-bold text-sm">
+                      <span className="w-8 h-8 rounded-full bg-slate-100 text-[#3D5A5A] flex items-center justify-center font-bold text-xs">
                         รอ
                       </span>
                     )}
@@ -826,25 +1060,25 @@ export default function KioskPage() {
                 </div>
 
                 {/* ข้อ 2: ฝึกสมอง */}
-                <div className={`p-5 rounded-2xl border-2 flex items-center justify-between transition-all ${
+                <div className={`p-4 rounded-2xl border-2 flex items-center justify-between transition-all ${
                   state === "checklist_done"
                     ? "bg-emerald-50 border-[#1E8A4C] shadow-md"
                     : "bg-white border-slate-200 shadow-sm"
                 }`}>
-                  <div className="flex items-center gap-3.5">
-                    <Brain className="w-6 h-6 text-[#3D5A5A]" />
+                  <div className="flex items-center gap-3">
+                    <Brain className="w-5 h-5 text-[#3D5A5A]" />
                     <div className="flex flex-col text-left">
-                      <span className="text-lg font-bold text-[#0B2B2B]">2. มินิเกมฝึกความจำสมอง</span>
-                      <span className="text-xs text-[#3D5A5A]">ตอบคำถามเพื่อสุขภาพ 1 ข้อ</span>
+                      <span className="text-base font-bold text-[#0B2B2B]">2. มินิเกมฝึกความจำสมอง</span>
+                      <span className="text-[11px] text-[#3D5A5A]">ตอบคำถามเพื่อสุขภาพ 1 ข้อ</span>
                     </div>
                   </div>
                   <div>
                     {state === "checklist_done" ? (
-                      <span className="w-9 h-9 rounded-full bg-[#1E8A4C] text-white flex items-center justify-center font-bold">
+                      <span className="w-8 h-8 rounded-full bg-[#1E8A4C] text-white flex items-center justify-center font-bold text-sm">
                         ✓
                       </span>
                     ) : (
-                      <span className="w-9 h-9 rounded-full bg-slate-100 text-[#3D5A5A] flex items-center justify-center font-bold text-sm">
+                      <span className="w-8 h-8 rounded-full bg-slate-100 text-[#3D5A5A] flex items-center justify-center font-bold text-xs">
                         รอ
                       </span>
                     )}
@@ -852,12 +1086,12 @@ export default function KioskPage() {
                 </div>
               </div>
 
-              {/* ปุ่มข้ามไปยังขั้นตอนถัดไปทันที */}
-              <div className="w-full mt-8">
+              {/* ปุ่มข้ามขั้นตอน */}
+              <div className="w-full mt-6">
                 {state === "checklist_intro" && (
                   <BigButton
                     variant="strong-primary"
-                    className="!min-h-[64px] !text-xl"
+                    className="!min-h-[64px] !text-lg"
                     onClick={() => transitionTo("mission_exercise")}
                   >
                     เข้าสู่ภารกิจที่ 1 ทันที
@@ -866,7 +1100,7 @@ export default function KioskPage() {
                 {state === "checklist_mid" && (
                   <BigButton
                     variant="strong-primary"
-                    className="!min-h-[64px] !text-xl"
+                    className="!min-h-[64px] !text-lg"
                     onClick={() => transitionTo("mission_quiz")}
                   >
                     เข้าสู่ภารกิจที่ 2 ทันที
@@ -875,7 +1109,7 @@ export default function KioskPage() {
                 {state === "checklist_done" && (
                   <BigButton
                     variant="strong-primary"
-                    className="!min-h-[64px] !text-xl"
+                    className="!min-h-[64px] !text-lg"
                     onClick={() => transitionTo("completion")}
                   >
                     ดูผลสรุปการฝึก
@@ -884,7 +1118,7 @@ export default function KioskPage() {
               </div>
             </div>
 
-            <div className="text-center text-xs text-[#527070] mt-auto">
+            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
               ระบบจะพาไปยังหน้าถัดไปอัตโนมัติเมื่อครบกำหนดเวลา
             </div>
           </div>
@@ -894,39 +1128,39 @@ export default function KioskPage() {
         {/* 10. ภารกิจที่ 1: กายภาพบำบัด (MISSION EXERCISE)                            */}
         {/* ========================================================================= */}
         {state === "mission_exercise" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-lg mx-auto py-2">
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
             
-            <div className="w-full flex items-center justify-between pb-2">
-              <span className="text-sm font-bold text-[#1E8A4C]">ภารกิจที่ 1: กายภาพบำบัด</span>
-              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-100 text-[#1E8A4C]">
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
+              <span className="text-xs font-bold text-[#1E8A4C]">ภารกิจที่ 1: กายภาพบำบัด</span>
+              <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-[#1E8A4C]">
                 ท่าบริหารหัวไหล่
               </span>
             </div>
 
-            <div className="w-full flex flex-col items-center my-auto">
+            <div className="w-full flex flex-col items-center my-auto py-1">
               {/* หน้าจอกล้องส่องกระจกตรวจจับข้อต่อ */}
-              <div className="w-full max-w-sm h-64 sm:h-72 rounded-3xl overflow-hidden shadow-xl border-4 border-[#1E8A4C]/30 bg-slate-900 relative">
-                <CameraMirror scanTitle="ยกแขนขึ้นช้าๆ ให้ถึงระดับไหล่" className="w-full h-full" />
+              <div className="w-full h-56 sm:h-64 rounded-3xl overflow-hidden shadow-xl border-3 border-[#1E8A4C]/30 bg-slate-900 relative flex-shrink-0">
+                <CameraMirror isScanning={true} scanTitle="ยกแขนขึ้นช้าๆ ให้ถึงระดับไหล่" className="w-full h-full" />
               </div>
 
               {/* ตัวนับ Reps */}
-              <div className="w-full bg-white rounded-3xl p-6 border-2 border-slate-200 shadow-md text-center my-5 flex flex-col items-center">
-                <span className="text-xs font-bold text-[#3D5A5A] uppercase tracking-wider">
+              <div className="w-full bg-white rounded-2xl p-4 border border-slate-200 shadow-sm text-center my-3 flex flex-col items-center">
+                <span className="text-[10px] font-bold text-[#3D5A5A] uppercase tracking-wider">
                   จำนวนครั้งที่ทำสำเร็จ
                 </span>
-                <div className="text-5xl font-black text-[#1E8A4C] my-1">
+                <div className="text-4xl font-black text-[#1E8A4C] my-0.5">
                   {exerciseReps} / {targetReps}
                 </div>
-                <span className="text-sm font-semibold text-[#0B2B2B]">
+                <span className="text-xs font-semibold text-[#0B2B2B]">
                   {exerciseReps >= targetReps ? "ยอดเยี่ยมมาก! ครบตามเป้าหมายแล้ว" : "ยกแขนขึ้นและลงช้าๆ"}
                 </span>
               </div>
 
               {/* ปุ่มจำลองเพิ่ม Reps */}
-              <div className="w-full flex flex-col gap-3">
+              <div className="w-full flex flex-col gap-2">
                 <BigButton
                   variant="strong-primary"
-                  className="!min-h-[64px] !text-xl"
+                  className="!min-h-[58px] !text-base"
                   onClick={() => {
                     const next = exerciseReps + 1;
                     setExerciseReps(next);
@@ -940,7 +1174,7 @@ export default function KioskPage() {
               </div>
             </div>
 
-            <div className="text-center text-xs text-[#527070] mt-auto">
+            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
               หากรู้สึกเจ็บหรือเมื่อยล้า สามารถพักหรือหยุดได้ทันที
             </div>
           </div>
@@ -950,29 +1184,29 @@ export default function KioskPage() {
         {/* 11. ภารกิจที่ 2: มินิเกมฝึกสมอง (MISSION QUIZ)                             */}
         {/* ========================================================================= */}
         {state === "mission_quiz" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-lg mx-auto py-2">
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
             
-            <div className="w-full flex items-center justify-between pb-2">
-              <span className="text-sm font-bold text-[#1E8A4C]">ภารกิจที่ 2: ฝึกสมองและความจำ</span>
-              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-100 text-[#1E8A4C]">
-                หมวด: อาหารเพื่อสุขภาพ
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
+              <span className="text-xs font-bold text-[#1E8A4C]">ภารกิจที่ 2: ฝึกสมองและความจำ</span>
+              <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-[#1E8A4C]">
+                อาหารเพื่อสุขภาพ
               </span>
             </div>
 
-            <div className="w-full flex flex-col items-center my-auto">
-              <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mb-3">
-                <Brain className="w-9 h-9" />
+            <div className="w-full flex flex-col items-center my-auto py-1">
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mb-2">
+                <Brain className="w-8 h-8" />
               </div>
 
-              <h2 className="text-2xl font-extrabold text-[#0B2B2B] text-center mb-1">
+              <h2 className="text-xl font-extrabold text-[#0B2B2B] text-center mb-1">
                 ผลไม้ชนิดใดมีวิตามินซีสูง ช่วยเสริมภูมิคุ้มกัน?
               </h2>
-              <p className="text-sm text-[#3D5A5A] text-center mb-6">
+              <p className="text-xs text-[#3D5A5A] text-center mb-3">
                 แตะเลือกคำตอบที่ถูกต้อง 1 ข้อ
               </p>
 
               {/* ตัวเลือกคำถาม */}
-              <div className="w-full flex flex-col gap-3.5">
+              <div className="w-full flex flex-col gap-2.5">
                 {[
                   { id: 1, label: "ก. ส้มและฝรั่ง", isCorrect: true },
                   { id: 2, label: "ข. มันฝรั่งทอด", isCorrect: false },
@@ -986,7 +1220,7 @@ export default function KioskPage() {
                       setTimeout(() => transitionTo("checklist_done"), 600);
                     }}
                     className={`
-                      w-full p-5 rounded-2xl text-left font-bold text-lg border-2 transition-all cursor-pointer shadow-sm
+                      w-full p-4 rounded-xl text-left font-bold text-base border-2 transition-all cursor-pointer shadow-sm
                       ${
                         selectedQuizAnswer === choice.id
                           ? "bg-emerald-100 border-[#1E8A4C] text-[#1E8A4C] scale-[0.99]"
@@ -1000,7 +1234,7 @@ export default function KioskPage() {
               </div>
             </div>
 
-            <div className="text-center text-xs text-[#527070] mt-auto">
+            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
               การฝึกสมองช่วยชะลอภาวะสมองเสื่อมในผู้สูงอายุ
             </div>
           </div>
@@ -1010,44 +1244,44 @@ export default function KioskPage() {
         {/* 12. สิ้นสุดภารกิจประจำวัน (COMPLETION SCREEN)                               */}
         {/* ========================================================================= */}
         {state === "completion" && (
-          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-lg mx-auto py-2 text-center">
+          <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0 text-center">
             
-            <div className="w-full flex items-center justify-between pb-2">
-              <span className="text-sm font-bold text-[#1E8A4C]">สำเร็จทุกภารกิจ</span>
-              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-100 text-[#1E8A4C]">
-                รีเซ็ตใน {countdown} วินาที
+            <div className="w-full flex items-center justify-between pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
+              <span className="text-xs font-bold text-[#1E8A4C]">สำเร็จทุกภารกิจ</span>
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-[#1E8A4C]">
+                รีเซ็ตใน {countdown} วิ
               </span>
             </div>
 
-            <div className="w-full flex flex-col items-center my-auto">
-              <div className="w-20 h-20 rounded-full bg-[#1E8A4C] text-white flex items-center justify-center mb-4 shadow-lg animate-bounce">
-                <Award className="w-12 h-12" />
+            <div className="w-full flex flex-col items-center my-auto py-1">
+              <div className="w-16 h-16 rounded-full bg-[#1E8A4C] text-white flex items-center justify-center mb-3 shadow-lg animate-bounce">
+                <Award className="w-10 h-10" />
               </div>
 
-              <h2 className="text-3xl font-extrabold text-[#0B2B2B] mb-1">
-                ยินดีด้วย! ท่านทำสำเร็จครบถ้วน
+              <h2 className="text-2xl font-extrabold text-[#0B2B2B] mb-1">
+                ยินดีด้วย! ทำสำเร็จครบถ้วน
               </h2>
-              <p className="text-base text-[#3D5A5A] mb-6">
+              <p className="text-xs text-[#3D5A5A] mb-3">
                 ระบบได้บันทึกประวัติการฝึกส่งให้นักกายภาพบำบัดเรียบร้อยแล้ว
               </p>
 
               {/* การ์ดคำแนะนำของแพทย์ */}
-              <div className="w-full bg-white rounded-3xl p-6 border-2 border-[#1E8A4C]/25 shadow-md text-left flex flex-col gap-2">
-                <span className="text-xs font-bold text-[#1E8A4C] uppercase tracking-wider">
+              <div className="w-full bg-white rounded-2xl p-4 border border-[#1E8A4C]/25 shadow-sm text-left flex flex-col gap-1.5">
+                <span className="text-[10px] font-bold text-[#1E8A4C] uppercase tracking-wider">
                   คำแนะนำจากนักกายภาพบำบัด
                 </span>
-                <p className="text-base font-bold text-[#0B2B2B]">
+                <p className="text-xs sm:text-sm font-bold text-[#0B2B2B] leading-relaxed">
                   “วันนี้ทำได้ดีมากครับ หัวไหล่เคลื่อนไหวได้มุม 90 องศาตามเกณฑ์ แนะนำให้ดื่มน้ำและพักผ่อนให้เพียงพอ พบกันใหม่ในวันพรุ่งนี้ครับ”
                 </p>
-                <span className="text-xs text-[#3D5A5A] mt-1">
+                <span className="text-[11px] text-[#3D5A5A] mt-0.5">
                   โดย: กภ. ปิยะ สมบูรณ์ (นักกายภาพบำบัดประจำคลินิก)
                 </span>
               </div>
 
-              <div className="w-full mt-6">
+              <div className="w-full mt-4">
                 <BigButton
                   variant="strong-primary"
-                  className="!min-h-[68px] !text-xl"
+                  className="!min-h-[60px] !text-lg"
                   onClick={handleFullReset}
                 >
                   เสร็จสิ้น / ออกจากระบบ ({countdown}s)
@@ -1055,7 +1289,7 @@ export default function KioskPage() {
               </div>
             </div>
 
-            <div className="text-center text-xs text-[#527070] mt-auto">
+            <div className="text-center text-[11px] text-[#527070] pt-1 border-t border-[#0B2B2B]/10 w-full flex-shrink-0">
               ขอให้ท่านมีสุขภาพร่างกายที่แข็งแรงในทุกๆ วัน
             </div>
           </div>
