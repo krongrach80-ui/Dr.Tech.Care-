@@ -1,6 +1,18 @@
 import type { NextConfig } from "next";
 
+const isGithubPages = process.env.EXPORT_GITHUB_PAGES === "true";
+
 const nextConfig: NextConfig = {
+  ...(isGithubPages
+    ? {
+        output: "export",
+        basePath: "/Dr.Tech.Care-",
+        assetPrefix: "/Dr.Tech.Care-/",
+        images: {
+          unoptimized: true,
+        },
+      }
+    : {}),
   turbopack: {
     rules: {
       "*.css": {
