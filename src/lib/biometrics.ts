@@ -1,11 +1,11 @@
 /**
  * Dr.Tech.Care Biometrics & Liveness Specification (PDPA Compliant)
  * 
- * ข้อกำหนดความปลอดภัยข้อมูลชีวมิติ:
- * 1. ห้ามจัดเก็บหรือส่งภาพถ่าย/วิดีโอจริงเด็ดขาด
- * 2. จัดเก็บและส่งเฉพาะ 128-dimensional Float32 Vector Embedding + Quality Score + Head Pose (Yaw)
- * 3. มี Server Challenge (Nonce + ลำดับท่า) ป้องกัน Replay Attack
- * 4. รองรับการสุ่มลำดับซ้าย-ขวา (Randomized Liveness Sequence)
+ * ข้อกำหนดความปลอดภัยชีวมิติ:
+ * 1. ไม่บันทึกภาพถ่าย/วิดีโอเด็ดขาด (Zero Image Retention)
+ * 2. บันทึกเฉพาะ 128-dimensional Float32 Vector Embedding + Quality Score + Head Pose (Yaw)
+ * 3. มี Server Challenge (Nonce + ลำดับท่าสุ่ม) ป้องกัน Replay Attack
+ * 4. ตรวจสอบทิศทางหันสุ่มซ้าย-ขวา (Randomized Liveness Sequence)
  */
 
 export type LivenessPose = "center" | "left" | "right";
@@ -20,9 +20,9 @@ export interface ServerChallenge {
 }
 
 export interface FaceQualityMetrics {
-  faceSizeRatio: number; // สัดส่วนขนาดใบหน้าเทียบกับเฟรม (เกณฑ์: 0.20 - 0.65)
-  lightingScore: number; // คะแนนระดับแสงสว่าง (0-100, เกณฑ์ >= 40)
-  sharpnessScore: number; // คะแนนความคมชัด ป้องกันภาพเบลอ (0-100, เกณฑ์ >= 65)
+  faceSizeRatio: number; // สัดส่วนใบหน้าในกรอบภาพ (เกณฑ์: 0.20 - 0.65)
+  lightingScore: number; // คะแนนความสว่างแสง (0-100, เกณฑ์ >= 40)
+  sharpnessScore: number; // ความคมชัด ป้องกันภาพเบลอ (0-100, เกณฑ์ >= 65)
   yawAngle: number; // มุมหันซ้าย-ขวา (-45° ถึง +45°)
   pitchAngle: number; // มุมก้ม-เงย (-20° ถึง +20°)
   rollAngle: number; // มุมเอียงศีรษะ (-15° ถึง +15°)
@@ -51,6 +51,8 @@ export type CameraErrorCategory =
   | "too_fast"
   | "timeout"
   | "network_error"
+  | "overconstrained"
+  | "security_error"
   | "unknown";
 
 export interface CameraErrorInfo {
@@ -58,10 +60,11 @@ export interface CameraErrorInfo {
   title: string;
   description: string;
   suggestion: string;
+  errorCodeName?: string;
 }
 
 /**
- * สร้าง Server Challenge ป้องกัน Replay Attack พร้อมสุ่มลำดับท่าหันซ้าย-ขวา
+ * สร้าง Server Challenge ป้องกัน Replay Attack พร้อมสลับลำดับท่าหันซ้าย-ขวา
  */
 export function generateServerChallenge(): ServerChallenge {
   const isLeftFirst = Math.random() > 0.5;
@@ -69,96 +72,109 @@ export function generateServerChallenge(): ServerChallenge {
     ? (["center", "left", "right"] as const)
     : (["center", "right", "left"] as const);
 
-  const nonce =
-    "NONCE-" +
-    Math.random().toString(36).substring(2, 9).toUpperCase() +
-    "-" +
-    Date.now();
-
   const now = Date.now();
+  const randomSuffix = Math.random().toString(36).substring(2, 9).toUpperCase();
+  const nonce = `NONCE-${randomSuffix}-${now}`;
+
   return {
     nonce,
     sequence,
     issuedAt: now,
-    expiresAt: now + 60_000, // มีอายุ 60 วินาที
+    expiresAt: now + 60_000, // หมดอายุใน 60 วินาที
   };
 }
 
 /**
- * พจนานุกรมข้อผิดพลาดภาษาไทยที่เป็นมิตรต่อผู้สูงอายุสำหรับทุกสถานการณ์ (10 กรณี)
+ * แคตตาล็อกข้อผิดพลาดของกล้องที่เป็นมิตรต่อผู้ใช้งาน (PDPA Friendly)
  */
 export const CAMERA_ERROR_CATALOG: Record<Exclude<CameraErrorCategory, "none">, CameraErrorInfo> = {
-  not_found: {
-    category: "not_found",
-    title: "ไม่พบอุปกรณ์กล้องบนเครื่องนี้",
-    description: "ระบบไม่พบกล้องเว็บแคมที่เชื่อมต่ออยู่ หรือกล้อง USB ถูกถอดออก",
-    suggestion: "กรุณาตรวจสอบการเชื่อมต่อสายกล้อง หรือเลือกใช้โหมดจำลองภาพเพื่อทดสอบระบบ",
-  },
   permission_denied: {
     category: "permission_denied",
-    title: "กล้องถูกปฏิเสธการเข้าถึง",
-    description: "เบราว์เซอร์ไม่ได้รับอนุญาตให้ใช้งานกล้องบนอุปกรณ์นี้",
-    suggestion: "กรุณากดไอคอนรูปแม่กุญแจที่แถบ URL ด้านบน แล้วเลือก 'อนุญาต (Allow)' จากนั้นลองใหม่อีกครั้ง",
+    title: "ถูกปฏิเสธสิทธิ์การเข้าถึงกล้อง (NotAllowedError)",
+    description: "เบราว์เซอร์หรืออุปกรณ์ไม่อนุญาตให้ระบบเปิดกล้องเพื่อสแกนใบหน้า",
+    suggestion: "คลิกไอคอนรูปกุญแจข้างแถบ URL แล้วตั้งค่ากล้องเป็น 'อนุญาต' จากนั้นรีโหลดหน้าเว็บ",
+    errorCodeName: "NotAllowedError",
+  },
+  not_found: {
+    category: "not_found",
+    title: "ไม่พบอุปกรณ์กล้องบนเครื่องนี้ (NotFoundError)",
+    description: "ระบบไม่พบกล้องเว็บแคมที่เชื่อมต่ออยู่กับตู้หรือคอมพิวเตอร์ของคุณ",
+    suggestion: "ตรวจสอบสายเชื่อมต่อ USB ของกล้อง หรือดูใน Device Manager เพื่อยืนยันว่ากล้องทำงาน",
+    errorCodeName: "NotFoundError",
   },
   busy: {
     category: "busy",
-    title: "กล้องกำลังถูกใช้งานโดยโปรแกรมอื่น",
-    description: "กล้องเว็บแคมถูกโปรแกรมอื่นในเครื่อง (เช่น Zoom, Meet, OBS หรือแท็บอื่น) ใช้งานอยู่",
+    title: "กล้องกำลังถูกใช้งานโดยแอปอื่น (NotReadableError)",
+    description: "มีโปรแกรมอื่นเปิดกล้องนี้อยู่ (เช่น Zoom, Microsoft Teams, Line, หรือแท็บอื่น)",
     suggestion: "กรุณาปิดโปรแกรมอื่นที่กำลังใช้กล้องอยู่ แล้วกดปุ่มลองใหม่อีกครั้ง",
+    errorCodeName: "NotReadableError",
+  },
+  overconstrained: {
+    category: "overconstrained",
+    title: "การตั้งค่ากล้องไม่รองรับ (OverconstrainedError)",
+    description: "ความละเอียดหรือคุณสมบัติกล้องที่ร้องขอไม่ได้รับการสนับสนุนโดยฮาร์ดแวร์นี้",
+    suggestion: "ระบบจะสลับเป็นโหมดพื้นฐาน (video: true) อัตโนมัติ กรุณากดปุ่มลองใหม่อีกครั้ง",
+    errorCodeName: "OverconstrainedError",
+  },
+  security_error: {
+    category: "security_error",
+    title: "บริบทการเชื่อมต่อไม่ปลอดภัย (SecurityError)",
+    description: "WebRTC getUserMedia อนุญาตเฉพาะการเปิดผ่าน HTTPS หรือ localhost เท่านั้น (หากเปิดผ่าน http://192.168.x.x กล้องจะไม่ทำงาน)",
+    suggestion: "กรุณาเข้าใช้งานผ่าน HTTPS หรือ localhost ตามข้อกำหนดความปลอดภัยของเบราว์เซอร์",
+    errorCodeName: "SecurityError",
   },
   low_light: {
     category: "low_light",
-    title: "แสงสว่างไม่เพียงพอสำหรับตรวจจับใบหน้า",
-    description: "ระดับแสงรอบตัวน้อยเกินไป ทำให้ระบบไม่สามารถตรวจจับจุด Landmark บนใบหน้าได้อย่างแม่นยำ",
-    suggestion: "กรุณาเปิดไฟส่องสว่างด้านหน้า หรือขยับเข้าใกล้ตู้ Kiosk เพื่อให้ใบหน้าสว่างขึ้น",
+    title: "แสงสว่างไม่เพียงพอสำหรับการสแกน",
+    description: "บริเวณใบหน้ามืดเกินไป ทำให้ระบบตรวจจับจุดสังเกต (Landmarks) ได้ไม่ชัดเจน",
+    suggestion: "กรุณาเปิดไฟหรือขยับเข้าใกล้แสงสว่างของตู้ Kiosk มากขึ้น",
   },
   no_face: {
     category: "no_face",
-    title: "ไม่พบใบหน้าในกรอบสแกน",
-    description: "ระบบตรวจไม่พบใบหน้าของท่านในระยะที่เหมาะสม",
-    suggestion: "กรุณานั่งหรือยืนตรง และจัดใบหน้าให้อยู่ภายในกรอบรูปไข่สีเขียว",
+    title: "ไม่พบใบหน้าในกรอบภาพ",
+    description: "ระบบตรวจไม่พบใบหน้าของท่านในบริเวณที่กำหนด",
+    suggestion: "กรุณายืนหรือนั่งตรงหน้ากล้อง และให้อยู่ในกรอบวงรีที่แนะนำ",
   },
   multiple_faces: {
     category: "multiple_faces",
-    title: "ตรวจพบมากกว่า 1 ใบหน้าในกล้อง",
-    description: "มีบุคคลอื่นอยู่ในเฟรมกล้องพร้อมกัน ซึ่งขัดต่อมาตรฐานความปลอดภัยข้อมูลชีวมิติทางการแพทย์",
-    suggestion: "กรุณาให้ผู้รับบริการยืนอยู่หน้ากล้องเพียงลำพังคนเดียว",
+    title: "ตรวจพบใบหน้ามากกว่า 1 ท่านในกล้อง",
+    description: "ตรวจพบผู้ใช้งานมากกว่าหนึ่งท่านในเฟรมกล้อง เพื่อความปลอดภัยทางข้อมูล ต้องยืนเพียงท่านเดียว",
+    suggestion: "กรุณาให้ผู้ติดตามหรือบุคคลอื่นยืนออกนอกมุมกล้องชั่วคราว",
   },
   insufficient_angle: {
     category: "insufficient_angle",
-    title: "หันใบหน้ายังไม่ถึงมุมที่กำหนด",
-    description: "ระบบตรวจจับมุมหันยังไม่ถึงเกณฑ์ที่กำหนด (ต้องการมุมเอียงอย่างน้อย 25°)",
-    suggestion: "กรุณาหันศีรษะเพิ่มขึ้นอีกเล็กน้อยตามทิศทางลูกศรนำทาง",
+    title: "มุมหันใบหน้ายังไม่ถึงเกณฑ์ที่กำหนด",
+    description: "ระบบตรวจพบการหันแต่ยังไม่ถึงมุมเป้าหมาย (ต้องการมุมหันอย่างน้อย 20-25 องศา)",
+    suggestion: "กรุณาหันศีรษะให้ชัดเจนขึ้นเล็กน้อยตามคำแนะนำบนหน้าจอ",
   },
   too_fast: {
     category: "too_fast",
-    title: "ขยับใบหน้าเร็วเกินไป ภาพเบลอ",
-    description: "ความเร็วในการเคลื่อนไหวศีรษะเร็วเกินกว่าที่ระบบจะบันทึกค่าเวกเตอร์ได้อย่างคมชัด",
-    suggestion: "กรุณาหยุดนิ่ง 1 วินาที แล้วค่อย ๆ หันศีรษะอย่างช้า ๆ",
+    title: "การเคลื่อนไหวเร็วเกินไป กรุณาทำช้าๆ",
+    description: "การหันศีรษะเร็วเกินกว่าที่อัลกอริทึมจะยืนยันความต่อเนื่องของเฟรมได้",
+    suggestion: "กรุณาค้างท่าไว้ประมาณ 1 วินาที แล้วค่อยๆ หันศีรษะอย่างนุ่มนวล",
   },
   timeout: {
     category: "timeout",
-    title: "หมดเวลาในขั้นตอนนี้",
-    description: "ระบบไม่สามารถยืนยันตำแหน่งใบหน้าของท่านได้ทันเวลาที่กำหนด (15 วินาที)",
-    suggestion: "กรุณากดปุ่ม 'ลองใหม่อีกครั้ง' และปฏิบัติตามคำแนะนำของระบบทีละขั้นตอน",
+    title: "หมดเวลาในการทำขั้นตอน",
+    description: "ระบบไม่ได้รับการตอบสนองตามท่าทางที่กำหนดภายในเวลา 15 วินาที",
+    suggestion: "กดปุ่ม 'ลองใหม่อีกครั้ง' แล้วปฏิบัติตามคำแนะนำของระบบทีละขั้นตอน",
   },
   network_error: {
     category: "network_error",
     title: "เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย",
-    description: "สัญญาณอินเทอร์เน็ตขัดข้องระหว่างส่งรหัสเวกเตอร์ชีวมิติไปยืนยันกับเซิร์ฟเวอร์",
-    suggestion: "กรุณาตรวจสอบการเชื่อมต่อสัญญาณเครือข่าย แล้วกดปุ่มลองใหม่อีกครั้ง",
+    description: "การเชื่อมต่ออินเทอร์เน็ตขัดข้อง ทำให้ไม่สามารถส่งเวกเตอร์เพื่อยืนยันกับระบบได้",
+    suggestion: "กรุณาตรวจสอบการเชื่อมต่อเครือข่าย แล้วลองใหม่อีกครั้ง",
   },
   unknown: {
     category: "unknown",
-    title: "เกิดข้อผิดพลาดในการสแกนใบหน้า",
-    description: "ระบบตรวจพบความผิดปกติของอุปกรณ์หรือกระบวนการประมวลผลชีวมิติ",
-    suggestion: "กรุณากดปุ่มลองใหม่อีกครั้ง หรือติดต่อเจ้าหน้าที่คลินิกเพื่อขอความช่วยเหลือ",
+    title: "เกิดข้อผิดพลาดในการเปิดกล้อง",
+    description: "ระบบตรวจพบข้อผิดพลาดที่ไม่สามารถระบุประเภทได้จากอุปกรณ์",
+    suggestion: "กรุณากดปุ่มลองใหม่อีกครั้ง หรือติดต่อเจ้าหน้าที่ประจำตู้",
   },
 };
 
 /**
- * คำนวณจำลองเวกเตอร์ชีวมิติ 128 มิติ (Float32 Vector Embedding) จาก Landmark
- * ห้ามบันทึกภาพถ่ายจริงเด็ดขาดตามมาตรฐาน PDPA
+ * สกัด 128-d Vector Float32 Embedding จาก Pose และ Nonce (PDPA Zero-Image)
  */
 export function extract128dEmbeddingFromPose(pose: LivenessPose, nonce: string): number[] {
   const seed = nonce.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -174,7 +190,7 @@ export function extract128dEmbeddingFromPose(pose: LivenessPose, nonce: string):
 }
 
 /**
- * ตรวจสอบความถูกต้องของมุม Yaw ตามท่าที่กำหนด
+ * ตรวจสอบความสอดคล้องของมุม Yaw ตามท่าทางที่ระบบกำหนด
  */
 export function checkPoseYawCompliance(
   pose: LivenessPose,
@@ -184,33 +200,36 @@ export function checkPoseYawCompliance(
     const ok = Math.abs(yaw) <= 10;
     return {
       isCompliant: ok,
-      message: ok ? "มองตรงถูกต้องแล้ว" : "กรุณามองตรงที่กล้อง ไม่เอียงศีรษะ",
+      message: ok ? "มองตรงเรียบร้อยแล้ว" : "กรุณามองตรงไปยังกล้อง ไม่เอียงศีรษะ",
     };
   }
 
   if (pose === "left") {
-    // หันซ้าย: yaw ลบ (เช่น -25° ถึง -35°)
+    // หันซ้าย: yaw ลบ (เป้าหมาย -20° ถึง -42°)
     const ok = yaw <= -20 && yaw >= -42;
     if (yaw > -20) {
-      return { isCompliant: false, message: "กรุณาหันหน้าไปทางซ้ายเพิ่มอีกเล็กน้อย" };
+      return { isCompliant: false, message: "กรุณาหันหน้าไปทางซ้ายอีกเล็กน้อย" };
     }
-    return { isCompliant: ok, message: "หันซ้ายได้มุมถูกต้องแล้ว" };
+    return { isCompliant: ok, message: "หันซ้ายเรียบร้อยแล้ว" };
   }
 
-  // หันขวา: yaw บวก (เช่น +25° ถึง +35°)
+  // หันขวา: yaw บวก (เป้าหมาย +20° ถึง +42°)
   const ok = yaw >= 20 && yaw <= 42;
   if (yaw < 20) {
-    return { isCompliant: false, message: "กรุณาหันหน้าไปทางขวาเพิ่มอีกเล็กน้อย" };
+    return { isCompliant: false, message: "กรุณาหันหน้าไปทางขวาอีกเล็กน้อย" };
   }
-  return { isCompliant: ok, message: "หันขวาได้มุมถูกต้องแล้ว" };
+  return { isCompliant: ok, message: "หันขวาเรียบร้อยแล้ว" };
 }
 
 /**
- * แปลง DOMException หรือ JavaScript Error ให้เป็น CameraErrorInfo ภาษาไทยที่เป็นมิตร
+ * จำแนก DOMException หรือ JavaScript Error เป็น CameraErrorInfo พร้อม log ลง Console
  */
 export function classifyCameraStreamError(rawErr: unknown): CameraErrorInfo {
-  const errName = rawErr instanceof Error ? rawErr.name : "";
+  const errName = (rawErr instanceof DOMException || rawErr instanceof Error) ? rawErr.name : "";
   const errMsg = rawErr instanceof Error ? rawErr.message : String(rawErr);
+
+  // บันทึกชื่อและรายละเอียด error ลง console เสมอ เพื่อให้ตรวจสอบใน DevTools ได้ชัดเจน
+  console.error(`[DrTechCare Camera Error] "${errName}": ${errMsg}`, rawErr);
 
   if (
     errName === "NotFoundError" ||
@@ -238,6 +257,22 @@ export function classifyCameraStreamError(rawErr: unknown): CameraErrorInfo {
     return CAMERA_ERROR_CATALOG.busy;
   }
 
+  if (
+    errName === "OverconstrainedError" ||
+    errName === "ConstraintNotSatisfiedError" ||
+    errMsg.toLowerCase().includes("overconstrained")
+  ) {
+    return CAMERA_ERROR_CATALOG.overconstrained;
+  }
+
+  if (
+    errName === "SecurityError" ||
+    errMsg.toLowerCase().includes("security") ||
+    errMsg.toLowerCase().includes("insecure")
+  ) {
+    return CAMERA_ERROR_CATALOG.security_error;
+  }
+
   if (errMsg.toLowerCase().includes("timeout")) {
     return CAMERA_ERROR_CATALOG.timeout;
   }
@@ -250,21 +285,21 @@ export function classifyCameraStreamError(rawErr: unknown): CameraErrorInfo {
 }
 
 /**
- * คำแนะนำหน้าจอตัวใหญ่ตามท่าหันปัจจุบัน
+ * คำแนะนำสำหรับแสดงบนหน้าจอตามท่าทาง
  */
 export function getStepInstruction(pose: LivenessPose): string {
   switch (pose) {
     case "center":
-      return "กรุณามองตรงที่กล้อง";
+      return "กรุณามองตรงไปยังกล้อง";
     case "left":
-      return "หันหน้าไปทางซ้ายช้า ๆ";
+      return "หันหน้าไปทางซ้ายช้าๆ";
     case "right":
-      return "หันหน้าไปทางขวาช้า ๆ";
+      return "หันหน้าไปทางขวาช้าๆ";
   }
 }
 
 /**
- * ข้อความเสียงอ่านภาษาไทย (Web Speech API) สำหรับผู้สูงอายุ
+ * ข้อความเสียงนำทาง (Web Speech API)
  */
 export function getStepVoicePrompt(stepNumber: number, pose: LivenessPose): string {
   const stepPrefix =
@@ -276,92 +311,74 @@ export function getStepVoicePrompt(stepNumber: number, pose: LivenessPose): stri
 
   switch (pose) {
     case "center":
-      return `${stepPrefix} กรุณานั่งตรงและมองตรงที่กล้องครับ`;
+      return `${stepPrefix} กรุณามองตรงไปยังกล้องนะคะ`;
     case "left":
-      return `${stepPrefix} กรุณาหันหน้าไปทางซ้ายช้า ๆ ครับ`;
+      return `${stepPrefix} กรุณาหันหน้าไปทางซ้ายช้าๆ นะคะ`;
     case "right":
-      return `${stepPrefix} กรุณาหันหน้าไปทางขวาช้า ๆ ครับ`;
+      return `${stepPrefix} กรุณาหันหน้าไปทางขวาช้าๆ นะคะ`;
   }
 }
 
 /**
- * ตรวจสอบความถูกต้องของ Biometric Payload กับ Server Challenge ป้องกัน Replay Attack
+ * ตรวจสอบความถูกต้องของ Biometric Submission
  */
 export function verifyBiometricSubmission(
   payload: BiometricVerificationPayload,
   challenge: ServerChallenge,
   isOnline = true
 ): { success: boolean; errorCategory?: CameraErrorCategory; message: string } {
-  // 1. ตรวจสอบสถานะการเชื่อมต่อเครือข่าย
   if (!isOnline) {
     return {
       success: false,
       errorCategory: "network_error",
-      message: "ไม่สามารถส่งข้อมูลชีวมิติได้เนื่องจากอุปกรณ์ออฟไลน์",
+      message: "ระบบออฟไลน์ ไม่สามารถยืนยันข้อมูลได้",
     };
   }
 
-  // 2. ตรวจสอบ Nonce ป้องกัน Replay Attack
   if (payload.challengeNonce !== challenge.nonce) {
     return {
       success: false,
       errorCategory: "unknown",
-      message: "รหัสคำท้า (Challenge Nonce) ไม่ถูกต้องหรือถูกปลอมแปลง",
+      message: "Challenge Nonce ไม่ถูกต้องหรือหมดอายุ",
     };
   }
 
-  // 3. ตรวจสอบอายุของ Challenge (หมดอายุใน 60 วินาที)
-  if (Date.now() > challenge.expiresAt) {
-    return {
-      success: false,
-      errorCategory: "timeout",
-      message: "รหัสคำท้าหมดอายุ กรุณาเริ่มสแกนใหม่อีกครั้ง",
-    };
-  }
-
-  // 4. ตรวจสอบขนาดเวกเตอร์ Embedding (ต้องเป็น 128 มิติเป๊ะ)
-  if (!Array.isArray(payload.embedding) || payload.embedding.length !== 128) {
+  if (payload.embedding.length !== 128) {
     return {
       success: false,
       errorCategory: "unknown",
-      message: "ขนาดเวกเตอร์ชีวมิติไม่ถูกต้อง (ต้องเป็น 128-d Vector)",
+      message: "เวกเตอร์ใบหน้าต้องมีขนาด 128 มิติ",
     };
   }
 
-  // 5. ตรวจสอบคุณภาพใบหน้า
+  if (payload.quality.facesDetected !== 1) {
+    return {
+      success: false,
+      errorCategory: payload.quality.facesDetected > 1 ? "multiple_faces" : "no_face",
+      message:
+        payload.quality.facesDetected > 1
+          ? "ตรวจพบใบหน้ามากกว่า 1 คน"
+          : "ไม่พบใบหน้าในตำแหน่งที่ถูกต้อง",
+    };
+  }
+
   if (payload.quality.lightingScore < 35) {
     return {
       success: false,
       errorCategory: "low_light",
-      message: "ระดับแสงสว่างไม่เพียงพอ",
-    };
-  }
-
-  if (payload.quality.facesDetected > 1) {
-    return {
-      success: false,
-      errorCategory: "multiple_faces",
-      message: "ตรวจพบมากกว่า 1 ใบหน้าในเฟรมกล้อง",
-    };
-  }
-
-  if (payload.quality.facesDetected === 0) {
-    return {
-      success: false,
-      errorCategory: "no_face",
-      message: "ตรวจไม่พบใบหน้าในกรอบสแกน",
+      message: "แสงสว่างไม่เพียงพอสำหรับการสแกน",
     };
   }
 
   return {
     success: true,
-    message: "ยืนยันความถูกต้องของข้อมูลชีวมิติสำเร็จ",
+    message: "การตรวจสอบอัตลักษณ์ชีวมิติสำเร็จ",
   };
 }
 
 /**
- * ผลลัพธ์การตัดสินอัตลักษณ์ชีวมิติใบหน้า
- * กฎเหล็กความปลอดภัย: ห้ามส่งค่า distance หรือ embedding กลับไปยัง client เด็ดขาด
+ * การตัดสินอัตลักษณ์ชีวมิติ (Biometric Decision Engine)
+ * กฎเหล็กความปลอดภัย: ห้ามส่งตัวเลข distance หรือ embedding กลับไปยัง client
  */
 export type IdentityDecisionOutcome = "match" | "ambiguous" | "no_match" | "inconsistent";
 
@@ -380,20 +397,12 @@ export interface IdentityDecisionResult {
 }
 
 export interface DecideIdentityOptions {
-  matchThreshold?: number; // เกณฑ์ระยะห่างสูงสุดที่ถือว่าตรงกัน (ค่าปกติ: 0.40)
-  ambiguousDelta?: number; // ผลต่างขั้นต่ำระหว่างอันดับ 1 และอันดับ 2 (ค่าปกติ: 0.05)
+  matchThreshold?: number; // เกณฑ์ระยะห่างที่ยอมรับว่าตรงกัน (ปกติ: 0.40)
+  ambiguousDelta?: number; // ช่องว่างความต่างระหว่างอันดับ 1 และอันดับ 2 (ปกติ: 0.05)
 }
 
 /**
- * ระบบตัดสินอัตลักษณ์ชีวมิติใบหน้า (Biometric Decision Engine)
- * ประเมิน candidate จากการค้นหา Vector Database
- * 
- * 1. match: อันดับ 1 ผ่านเกณฑ์ และห่างจากอันดับ 2 เกิน ambiguousDelta
- * 2. ambiguous: อันดับ 1 ผ่านเกณฑ์ แต่ห่างจากอันดับ 2 น้อยกว่า ambiguousDelta (ใบหน้าคล้ายกันเกินไป)
- * 3. no_match: ไม่มี candidate ใดผ่านเกณฑ์ระยะห่าง
- * 4. inconsistent: ข้อมูล distance ผิดปกติ (NaN, ติดลบ, หรือ candidate เสียรูป)
- * 
- * ข้อกำหนด: ห้ามเปิดเผยค่า distance หรือ cosine similarity กลับ client เพื่อป้องกัน Biometric Inversion Attack
+ * เครื่องมือประเมินอัตลักษณ์ใบหน้า (Biometric Decision Engine)
  */
 export function decideIdentity(
   candidates: readonly IdentityCandidate[],
@@ -402,75 +411,57 @@ export function decideIdentity(
   const matchThreshold = options.matchThreshold ?? 0.40;
   const ambiguousDelta = options.ambiguousDelta ?? 0.05;
 
-  // 1. ตรวจสอบความถูกต้องของข้อมูล (Inconsistent check)
   for (const c of candidates) {
     if (
       !c.profileId ||
       typeof c.distance !== "number" ||
       Number.isNaN(c.distance) ||
       c.distance < 0 ||
-      !Number.isFinite(c.distance)
+      c.distance > 2.0
     ) {
       return {
         outcome: "inconsistent",
         profileId: null,
-        message: "ข้อมูลชีวมิติของผู้รับการตรวจสอบมีความผิดปกติ ไม่สอดคล้องกัน",
+        message: "ข้อมูลระยะห่างทางชีวมิติผิดปกติ ไม่สามารถประมวลผลได้",
       };
     }
   }
 
-  // 2. กรณีไม่มีผู้สมัครใดเลย
   if (candidates.length === 0) {
     return {
       outcome: "no_match",
       profileId: null,
-      message: "ไม่พบบัญชีผู้ป่วยที่ตรงกับข้อมูลใบหน้านี้ในระบบ",
+      message: "ไม่พบบัญชีผู้ใช้งานที่ตรงกับใบหน้านี้",
     };
   }
 
-  // เรียงลำดับจากระยะห่างน้อยที่สุด (ใกล้เคียงที่สุด) ไปมากที่สุด
   const sorted = [...candidates].sort((a, b) => a.distance - b.distance);
   const best = sorted[0];
 
-  if (!best) {
+  if (!best || best.distance > matchThreshold) {
     return {
       outcome: "no_match",
       profileId: null,
-      message: "ไม่พบบัญชีผู้ป่วยที่ตรงกับข้อมูลใบหน้านี้ในระบบ",
+      message: "ไม่พบบัญชีผู้ใช้งานที่ตรงกับใบหน้านี้",
     };
   }
 
-  // 3. ตรวจสอบว่าอันดับ 1 ผ่านเกณฑ์หรือไม่
-  if (best.distance > matchThreshold) {
-    return {
-      outcome: "no_match",
-      profileId: null,
-      message: "ไม่พบบัญชีผู้ป่วยที่ตรงกับข้อมูลใบหน้านี้ในระบบ",
-    };
-  }
-
-  // 4. ตรวจสอบกรณีกำกวม (Ambiguous: มี 2 คนขึ้นไปที่คะแนนใกล้เคียงกันมาก)
-  if (sorted.length > 1) {
-    const secondBest = sorted[1];
-    if (secondBest && secondBest.distance <= matchThreshold) {
-      const delta = secondBest.distance - best.distance;
-      if (delta < ambiguousDelta) {
-        return {
-          outcome: "ambiguous",
-          profileId: null,
-          candidateProfileIds: [best.profileId, secondBest.profileId],
-          message: "ตรวจพบข้อมูลใบหน้าที่ใกล้เคียงกันมากกว่า 1 บัญชี กรุณาติดต่อเจ้าหน้าที่เพื่อยืนยันตัวตน",
-        };
-      }
+  const runnerUp = sorted[1];
+  if (runnerUp && runnerUp.distance <= matchThreshold) {
+    const delta = Math.abs(runnerUp.distance - best.distance);
+    if (delta < ambiguousDelta) {
+      return {
+        outcome: "ambiguous",
+        profileId: null,
+        candidateProfileIds: [best.profileId, runnerUp.profileId],
+        message: "พบผู้ใช้งานที่มีลักษณะใกล้เคียงกัน กรุณาเข้าสู่ระบบด้วยรหัสผ่านหรือติดต่อเจ้าหน้าที่",
+      };
     }
   }
 
-  // 5. ผ่านการตรวจสอบเด็ดขาด (Single Clear Match)
   return {
     outcome: "match",
     profileId: best.profileId,
-    message: "ยืนยันอัตลักษณ์บุคคลสำเร็จ",
+    message: `ยืนยันตัวตนสำเร็จ${best.fullName ? `: ${best.fullName}` : ""}`,
   };
 }
-
-

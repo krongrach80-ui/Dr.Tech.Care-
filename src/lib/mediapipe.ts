@@ -42,12 +42,11 @@ export async function initializeFaceLandmarker(): Promise<FaceLandmarker | null>
 
     let vision: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>;
     try {
-      vision = await FilesetResolver.forVisionTasks(wasmPath);
+      const primaryWasm = typeof window !== "undefined" ? window.location.origin + "/models/mediapipe/wasm" : "/models/mediapipe/wasm";
+      vision = await FilesetResolver.forVisionTasks(primaryWasm);
     } catch (wasmErr) {
-      console.warn("Local WASM load fallback to CDN:", wasmErr);
-      vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-      );
+      console.warn("Primary local WASM path (/models/mediapipe/wasm) failed, falling back to /wasm:", wasmErr);
+      vision = await FilesetResolver.forVisionTasks(wasmPath);
     }
 
     // ลองสร้างด้วย GPU delegate ก่อน หากฮาร์ดแวร์ Kiosk ไม่รองรับ ให้ Fallback เป็น CPU ทันที

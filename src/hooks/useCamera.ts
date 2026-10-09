@@ -7,6 +7,7 @@ export type CameraErrorCode =
   | "not_found"
   | "in_use"
   | "overconstrained"
+  | "security_error"
   | "not_supported"
   | "unknown";
 
@@ -15,45 +16,59 @@ export interface CameraErrorDetails {
   title: string;
   description: string;
   suggestion: string;
+  errorCodeName?: string;
   originalError?: unknown;
 }
 
 export const CAMERA_ERRORS: Record<CameraErrorCode, CameraErrorDetails> = {
   not_allowed: {
     code: "not_allowed",
-    title: "ไม่ได้รับอนุญาตให้ใช้กล้อง",
-    description: "เบราว์เซอร์หรือระบบปฏิบัติการปฏิเสธการเข้าถึงกล้องสำหรับระบบสแกนใบหน้า",
-    suggestion: "กรุณากดอนุญาตการเข้าถึงกล้องที่ไอคอนรูปกล้องบนแถบที่อยู่ของเบราว์เซอร์ แล้วลองใหม่อีกครั้ง",
+    title: "สิทธิ์เข้าถึงกล้องถูกปฏิเสธ (NotAllowedError)",
+    description: "เบราว์เซอร์หรือผู้ใช้ปฏิเสธสิทธิ์การเปิดกล้อง",
+    suggestion: "คลิกไอคอนรูปกุญแจข้างแถบ URL แล้วตั้งค่ากล้องเป็น 'อนุญาต' จากนั้นรีโหลดหน้านี้",
+    errorCodeName: "NotAllowedError",
   },
   not_found: {
     code: "not_found",
-    title: "ไม่พบอุปกรณ์กล้อง",
-    description: "ระบบไม่สามารถตรวจพบกล้องวิดีโอบนตู้ Kiosk นี้ได้",
-    suggestion: "กรุณาตรวจสอบสายเชื่อมต่อ USB ของกล้อง หรือติดต่อเจ้าหน้าที่เทคนิคของคลินิก",
+    title: "ไม่พบอุปกรณ์กล้อง (NotFoundError)",
+    description: "ระบบตรวจไม่พบกล้องเว็บแคมที่เชื่อมต่ออยู่กับเครื่อง",
+    suggestion: "ตรวจสอบสาย USB หรือไดรเวอร์กล้องใน Device Manager แล้วลองใหม่อีกครั้ง",
+    errorCodeName: "NotFoundError",
   },
   in_use: {
     code: "in_use",
-    title: "กล้องกำลังถูกใช้งานอยู่",
-    description: "ไม่สามารถเปิดกล้องได้เนื่องจากมีแอปพลิเคชันอื่นกำลังใช้งานกล้องอยู่",
-    suggestion: "กรุณาปิดโปรแกรมอื่นที่เปิดกล้องค้างไว้ แล้วกดปุ่มลองใหม่อีกครั้ง",
+    title: "กล้องกำลังถูกใช้งานอยู่ (NotReadableError)",
+    description: "มีโปรแกรมอื่นกำลังเปิดใช้กล้องนี้อยู่ (เช่น Zoom, Teams, Line หรือแท็บอื่น)",
+    suggestion: "กรุณาปิดโปรแกรมอื่นที่กำลังใช้กล้องอยู่ แล้วกดปุ่มลองใหม่อีกครั้ง",
+    errorCodeName: "NotReadableError",
   },
   overconstrained: {
     code: "overconstrained",
-    title: "กล้องไม่รองรับความละเอียดที่กำหนด",
-    description: "อุปกรณ์กล้องไม่สามารถทำงานที่ความละเอียด 1280x720 ได้",
-    suggestion: "ระบบจะปรับลดความละเอียดลงอัตโนมัติ กรุณากดลองใหม่อีกครั้ง",
+    title: "การตั้งค่ากล้องไม่รองรับ (OverconstrainedError)",
+    description: "กล้องไม่รองรับความละเอียดหรือคุณสมบัติที่ระบุ (เช่น 1280x720 หรือ facingMode)",
+    suggestion: "ระบบจะสลับเป็นโหมดพื้นฐาน (video: true) อัตโนมัติ กรุณาลองใหม่อีกครั้ง",
+    errorCodeName: "OverconstrainedError",
+  },
+  security_error: {
+    code: "security_error",
+    title: "บริบทความปลอดภัยไม่ถูกต้อง (SecurityError)",
+    description: "WebRTC อนุญาตให้เปิดกล้องเฉพาะการเชื่อมต่อผ่าน HTTPS หรือ localhost เท่านั้น",
+    suggestion: "กรุณาเข้าใช้งานผ่าน HTTPS หรือ localhost (การเปิดผ่าน http://192.168.x.x จะถูกบล็อก)",
+    errorCodeName: "SecurityError",
   },
   not_supported: {
     code: "not_supported",
-    title: "เบราว์เซอร์ไม่รองรับกล้องวิดีโอ",
-    description: "สภาพแวดล้อมปัจจุบันไม่รองรับ WebRTC getUserMedia API",
-    suggestion: "กรุณาเปิดระบบด้วยเบราว์เซอร์ Chromium ล่าสุด หรือติดต่อผู้ดูแลระบบ",
+    title: "เบราว์เซอร์ไม่รองรับกล้อง",
+    description: "เบราว์เซอร์ของคุณไม่รองรับ WebRTC getUserMedia API",
+    suggestion: "กรุณาใช้งานผ่านเบราว์เซอร์ Chromium ล่าสุด เช่น Google Chrome หรือ Microsoft Edge",
+    errorCodeName: "NotSupportedError",
   },
   unknown: {
     code: "unknown",
     title: "เกิดข้อผิดพลาดในการเปิดกล้อง",
-    description: "ไม่สามารถเชื่อมต่อสัญญาณภาพจากกล้องได้",
-    suggestion: "กรุณากดปุ่มลองใหม่อีกครั้ง หรือรีสตาร์ตระบบตู้ Kiosk",
+    description: "ระบบตรวจพบข้อผิดพลาดที่ไม่สามารถระบุประเภทได้จากอุปกรณ์",
+    suggestion: "กรุณากดลองใหม่อีกครั้ง หรือตรวจสอบสิทธิ์ในระบบปฏิบัติการ",
+    errorCodeName: "UnknownError",
   },
 };
 
@@ -76,22 +91,15 @@ export function useCamera({
 }: UseCameraOptions = {}) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<CameraErrorDetails | null>(null);
-
   const [streamState, setStreamState] = useState<MediaStream | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rvfcIdRef = useRef<number | null>(null);
   const isStartingRef = useRef(false);
+  const isMountedRef = useRef(true);
 
-  /**
-   * หยุดการทำงานของกล้องและคืนทรัพยากรทั้งหมด
-   * - หยุดทุก MediaStreamTrack
-   * - ยกเลิก requestVideoFrameCallback
-   * - ล้าง event listeners และ srcObject
-   */
   const stop = useCallback(() => {
-    // 1. ยกเลิก requestVideoFrameCallback หากมีค้างอยู่
     if (
       videoRef.current &&
       rvfcIdRef.current !== null &&
@@ -108,7 +116,6 @@ export function useCamera({
       rvfcIdRef.current = null;
     }
 
-    // 2. หยุดทุก Track บน MediaStream
     if (streamRef.current) {
       const tracks = streamRef.current.getTracks();
       for (const track of tracks) {
@@ -121,7 +128,6 @@ export function useCamera({
       streamRef.current = null;
     }
 
-    // 3. ปลดการผูกสตรีมกับ element
     if (videoRef.current) {
       videoRef.current.srcObject = null;
       videoRef.current.onloadedmetadata = null;
@@ -133,12 +139,14 @@ export function useCamera({
     setIsStreaming(false);
   }, []);
 
-  /**
-   * จำแนก Error จาก getUserMedia เป็นข้อความภาษาไทย
-   */
   const parseCameraError = useCallback((err: unknown): CameraErrorDetails => {
-    if (err instanceof DOMException) {
-      switch (err.name) {
+    const errName = err instanceof DOMException || err instanceof Error ? err.name : "";
+    const errMsg = err instanceof Error ? err.message : String(err);
+
+    console.error(`[useCamera Error] Name: "${errName}", Message: "${errMsg}"`, err);
+
+    if (err instanceof DOMException || err instanceof Error) {
+      switch (errName) {
         case "NotAllowedError":
         case "PermissionDeniedError":
           return { ...CAMERA_ERRORS.not_allowed, originalError: err };
@@ -151,24 +159,26 @@ export function useCamera({
         case "OverconstrainedError":
         case "ConstraintNotSatisfiedError":
           return { ...CAMERA_ERRORS.overconstrained, originalError: err };
+        case "SecurityError":
+          return { ...CAMERA_ERRORS.security_error, originalError: err };
         default:
+          if (errMsg.toLowerCase().includes("security") || errMsg.toLowerCase().includes("https")) {
+            return { ...CAMERA_ERRORS.security_error, originalError: err };
+          }
           return { ...CAMERA_ERRORS.unknown, originalError: err };
       }
     }
     return { ...CAMERA_ERRORS.unknown, originalError: err };
   }, []);
 
-  /**
-   * เปิดกล้องด้วย getUserMedia พร้อม fallback constraint
-   */
   const start = useCallback(async () => {
-    if (isStartingRef.current) return;
+    if (isStartingRef.current || !isMountedRef.current) return;
     isStartingRef.current = true;
     setError(null);
 
-    // ตรวจสอบความพร้อมของ Browser API
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       const err = CAMERA_ERRORS.not_supported;
+      console.error("[useCamera Error] navigator.mediaDevices.getUserMedia is not supported");
       setError(err);
       onError?.(err);
       isStartingRef.current = false;
@@ -180,7 +190,6 @@ export function useCamera({
     let stream: MediaStream | null = null;
 
     try {
-      // 1. พยายามขอเปิดกล้องด้วยขนาดที่ระบุ
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode,
@@ -190,19 +199,27 @@ export function useCamera({
         audio: false,
       });
     } catch (firstError) {
+      console.warn("[useCamera] Ideal constraint failed, attempting fallback to video: true...", firstError);
       try {
-        // 2. Fallback: ขอวิดีโอแบบไม่จำกัด constraint ป้องกัน OverconstrainedError
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false,
         });
       } catch (secondError) {
         const errorDetails = parseCameraError(secondError || firstError);
-        setError(errorDetails);
-        onError?.(errorDetails);
+        if (isMountedRef.current) {
+          setError(errorDetails);
+          onError?.(errorDetails);
+        }
         isStartingRef.current = false;
         return;
       }
+    }
+
+    if (!isMountedRef.current) {
+      stream?.getTracks().forEach((t) => t.stop());
+      isStartingRef.current = false;
+      return;
     }
 
     if (stream) {
@@ -213,19 +230,38 @@ export function useCamera({
       if (videoRef.current) {
         const videoElement = videoRef.current;
         videoElement.srcObject = stream;
+        videoElement.muted = true;
+        videoElement.playsInline = true;
+        videoElement.autoplay = true;
 
-        videoElement.onloadedmetadata = () => {
-          videoElement
-            .play()
-            .then(() => {
-              setIsStreaming(true);
-            })
-            .catch((playErr) => {
-              const playErrorDetails = parseCameraError(playErr);
-              setError(playErrorDetails);
-              onError?.(playErrorDetails);
-            });
+        const handlePlayback = () => {
+          if (!isMountedRef.current) return;
+          const playPromise = videoElement.play();
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                if (isMountedRef.current) setIsStreaming(true);
+              })
+              .catch((playErr) => {
+                console.error("[useCamera] video.play() error:", playErr);
+                const playErrorDetails = parseCameraError(playErr);
+                if (isMountedRef.current) {
+                  setError(playErrorDetails);
+                  onError?.(playErrorDetails);
+                }
+              });
+          } else {
+            setIsStreaming(true);
+          }
         };
+
+        if (videoElement.readyState >= 1) {
+          handlePlayback();
+        } else {
+          videoElement.onloadedmetadata = () => {
+            handlePlayback();
+          };
+        }
       } else {
         setIsStreaming(true);
       }
@@ -234,33 +270,24 @@ export function useCamera({
     isStartingRef.current = false;
   }, [facingMode, idealWidth, idealHeight, onError, onStreamReady, parseCameraError, stop]);
 
-  /**
-   * รีสตาร์ตกล้องใหม่
-   */
   const restart = useCallback(async () => {
     stop();
     await start();
   }, [stop, start]);
 
-  /**
-   * Lifecycle Cleanup เมื่อ Unmount หรือ Logout
-   */
   useEffect(() => {
-    let isCancelled = false;
-    if (autoStart) {
-      const timer = setTimeout(() => {
-        if (!isCancelled) void start();
-      }, 0);
+    isMountedRef.current = true;
+    let timer: NodeJS.Timeout | null = null;
 
-      return () => {
-        isCancelled = true;
-        clearTimeout(timer);
-        stop();
-      };
+    if (autoStart) {
+      timer = setTimeout(() => {
+        if (isMountedRef.current) void start();
+      }, 50);
     }
 
     return () => {
-      isCancelled = true;
+      isMountedRef.current = false;
+      if (timer) clearTimeout(timer);
       stop();
     };
   }, [autoStart, start, stop]);
@@ -269,9 +296,9 @@ export function useCamera({
     videoRef,
     isStreaming,
     error,
+    stream: streamState,
     start,
     stop,
     restart,
-    stream: streamState,
   };
 }

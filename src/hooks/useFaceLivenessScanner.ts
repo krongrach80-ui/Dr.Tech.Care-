@@ -66,7 +66,11 @@ export function useFaceLivenessScanner({
   const [isSimulatedMode, setIsSimulatedMode] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">(initialFacingMode);
 
-  // คุณภาพใบหน้าแบบเรียลไทม์
+  // แยกสถานะความพร้อมของโมเดล AI ออกจากการเปิดกล้อง
+  const [isModelReady, setIsModelReady] = useState(false);
+  const [isModelLoading, setIsModelLoading] = useState(true);
+
+  // ตัวชี้วัดคุณภาพใบหน้า
   const [qualityMetrics, setQualityMetrics] = useState<FaceQualityMetrics>({
     faceSizeRatio: 0.42,
     lightingScore: 85,
@@ -78,26 +82,27 @@ export function useFaceLivenessScanner({
     facesDetected: 1,
   });
 
-  // ตัวนับเวลาถอยหลังประจำแต่ละขั้นตอน (ค่าเริ่มต้น 15s)
   const [stepSecondsLeft, setStepSecondsLeft] = useState<number>(stepTimeoutSeconds);
-
-  // สถานะเสียงพูด
   const [isMuted, setIsMuted] = useState(!speechEnabled);
 
-  // Refs สำหรับการควบคุม WebRTC, MediaPipe และ Lifecycle
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const latestLandmarksRef = useRef<NormalizedLandmark[] | null>(null);
   const compliantFramesCountRef = useRef<number>(0);
+  const isMountedRef = useRef<boolean>(true);
 
-  // ท่าปัจจุบันตาม sequence จาก Server Challenge
   const currentPose: LivenessPose = challenge.sequence[currentStepIndex];
   const stepNumber: 1 | 2 | 3 = (currentStepIndex + 1) as 1 | 2 | 3;
 
-  // หยุด Stream กล้องและล้างค่าทรัพยากร
   const stopActiveStream = useCallback(() => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {
+          // no-op
+        }
+      });
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -108,28 +113,47 @@ export function useFaceLivenessScanner({
     cleanupFaceLandmarker();
   }, []);
 
-  // ขอสิทธิ์และเปิดกล้องจากอุปกรณ์ด้วย getUserMedia (facingMode: 'user') พร้อม 2-stage fallback
+  // เริ่มโหลดโมเดล MediaPipe แบบ Asynchronous แยกจากการเปิดกล้อง
+  const loadAIModel = useCallback(async () => {
+    setIsModelLoading(true);
+    try {
+      const landmarker = await initializeFaceLandmarker();
+      if (landmarker && isMountedRef.current) {
+        setIsModelReady(true);
+      }
+    } catch (err) {
+      console.warn("[FaceScanner] AI Model init warning:", err);
+    } finally {
+      if (isMountedRef.current) {
+        setIsModelLoading(false);
+      }
+    }
+  }, []);
+
   const startCamera = useCallback(
     async (targetFacing: "user" | "environment" = facingMode) => {
+      if (!isMountedRef.current) return;
       stopActiveStream();
       setStatus("initializing");
       setErrorInfo(null);
 
-      // เริ่มโหลดโมเดล MediaPipe FaceLandmarker แบบ Asynchronous เบื้องหลัง
-      void initializeFaceLandmarker();
+      // เริ่มโหลด AI คู่ขนาน (ไม่รอ AI เพื่อให้ภาพจากกล้องขึ้นทันที)
+      void loadAIModel();
 
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
         const err = CAMERA_ERROR_CATALOG.not_found;
-        setErrorInfo(err);
-        setStatus("error");
-        onError?.(err);
+        console.error("[FaceScanner] navigator.mediaDevices.getUserMedia is not supported");
+        if (isMountedRef.current) {
+          setErrorInfo(err);
+          setStatus("error");
+          onError?.(err);
+        }
         return;
       }
 
       let stream: MediaStream | null = null;
 
       try {
-        // ขั้นที่ 1: ขอความละเอียด 1280x720 พร้อม facingMode ที่ระบุ
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: targetFacing,
@@ -139,7 +163,7 @@ export function useFaceLivenessScanner({
           audio: false,
         });
       } catch (firstErr) {
-        // ขั้นที่ 2: หาก constraint ไม่รองรับ ให้ fallback เป็น video: true
+        console.warn("[FaceScanner] Ideal constraint failed, falling back to video: true", firstErr);
         try {
           stream = await navigator.mediaDevices.getUserMedia({
             video: true,
@@ -147,12 +171,20 @@ export function useFaceLivenessScanner({
           });
         } catch (secondErr) {
           const rawErr = secondErr instanceof Error ? secondErr : firstErr;
+          console.error("[FaceScanner Error] getUserMedia failed:", rawErr);
           const classified = classifyCameraStreamError(rawErr);
-          setErrorInfo(classified);
-          setStatus("error");
-          onError?.(classified);
+          if (isMountedRef.current) {
+            setErrorInfo(classified);
+            setStatus("error");
+            onError?.(classified);
+          }
           return;
         }
+      }
+
+      if (!isMountedRef.current) {
+        stream?.getTracks().forEach((track) => track.stop());
+        return;
       }
 
       if (stream) {
@@ -160,27 +192,55 @@ export function useFaceLivenessScanner({
         registerActiveKioskMediaStream(stream);
 
         if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current?.play().catch(() => {});
-            setStatus("scanning");
+          const video = videoRef.current;
+          video.srcObject = stream;
+          video.muted = true;
+          video.playsInline = true;
+          video.autoplay = true;
+
+          const playVideo = () => {
+            if (!isMountedRef.current) return;
+            const playPromise = video.play();
+            if (playPromise !== undefined) {
+              playPromise
+                .then(() => {
+                  if (isMountedRef.current) {
+                    console.log("[FaceScanner] Video feed streaming active");
+                    setStatus("scanning");
+                  }
+                })
+                .catch((playErr) => {
+                  console.error("[FaceScanner] video.play() error:", playErr);
+                  if (isMountedRef.current) {
+                    setStatus("scanning");
+                  }
+                });
+            } else {
+              setStatus("scanning");
+            }
           };
+
+          if (video.readyState >= 1) {
+            playVideo();
+          } else {
+            video.onloadedmetadata = () => {
+              playVideo();
+            };
+          }
         } else {
           setStatus("scanning");
         }
       }
     },
-    [facingMode, stopActiveStream, onError]
+    [facingMode, stopActiveStream, loadAIModel, onError]
   );
 
-  // สลับกล้องหน้า/หลัง
   const toggleFacingMode = useCallback(() => {
     const nextMode = facingMode === "user" ? "environment" : "user";
     setFacingMode(nextMode);
     void startCamera(nextMode);
   }, [facingMode, startCamera]);
 
-  // สลับเปิด/ปิดเสียงบรรยายภาษาไทย
   const toggleSpeech = useCallback(() => {
     setIsMuted((prev) => {
       const next = !prev;
@@ -189,7 +249,6 @@ export function useFaceLivenessScanner({
     });
   }, []);
 
-  // กำหนดให้เกิด Error เฉพาะกิจเพื่อการทดสอบ / สาธิตการทำงาน
   const triggerSpecificError = useCallback(
     (category: CameraErrorCategory) => {
       if (category === "none") {
@@ -206,7 +265,6 @@ export function useFaceLivenessScanner({
     [isMuted, onError]
   );
 
-  // เริ่มต้นรอบการสแกนใหม่ทั้งหมด (Reset State)
   const restartScan = useCallback(() => {
     stopSpeech();
     setErrorInfo(null);
@@ -223,12 +281,10 @@ export function useFaceLivenessScanner({
     }
   }, [facingMode, isSimulatedMode, startCamera, stepTimeoutSeconds]);
 
-  // ยืนยันผ่านขั้นตอนปัจจุบันและคำนวณเวกเตอร์ชีวมิติ
   const completeCurrentStep = useCallback(() => {
     setErrorInfo(null);
     compliantFramesCountRef.current = 0;
 
-    // คำนวณเวกเตอร์ 128 มิติจาก MediaPipe Landmarks หรือ Pose Math (Zero Image Retention)
     let embedding: number[];
     if (latestLandmarksRef.current && latestLandmarksRef.current.length >= 100) {
       embedding = extractEmbeddingFromLandmarks(
@@ -264,26 +320,25 @@ export function useFaceLivenessScanner({
     onStepComplete?.(stepNumber, currentPose, payload);
 
     if (currentStepIndex < 2) {
-      // เลื่อนไปขั้นตอนถัดไป (1 -> 2 หรือ 2 -> 3)
-      setCurrentStepIndex((prev) => ((prev + 1) as 0 | 1 | 2));
+      setCurrentStepIndex((prev) => (prev + 1) as 0 | 1 | 2);
       setStepSecondsLeft(stepTimeoutSeconds);
     } else {
-      // สแกนครบทั้ง 3 ขั้นตอน -> ทำการตรวจสอบ Payload กับ Server Challenge
       setStatus("verifying");
-      const isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
-      const verification = verifyBiometricSubmission(payload, challenge, isOnline);
+      stopSpeech();
 
-      if (!verification.success && verification.errorCategory && verification.errorCategory !== "none") {
-        const err = CAMERA_ERROR_CATALOG[verification.errorCategory];
+      const verification = verifyBiometricSubmission(payload, challenge, true);
+      if (!verification.success) {
+        const err = (verification.errorCategory && verification.errorCategory !== "none")
+          ? CAMERA_ERROR_CATALOG[verification.errorCategory]
+          : CAMERA_ERROR_CATALOG.unknown;
         setErrorInfo(err);
         setStatus("error");
         onError?.(err);
-        speakThai(err.description, !isMuted);
-      } else {
-        setStatus("success");
-        onAllStepsComplete?.(payload);
-        speakThai("ยืนยันตัวตนสำเร็จ กำลังเข้าสู่หน้าหลักครับ", !isMuted);
+        return;
       }
+
+      setStatus("success");
+      onAllStepsComplete?.(payload);
     }
   }, [
     currentPose,
@@ -293,12 +348,11 @@ export function useFaceLivenessScanner({
     currentStepIndex,
     stepTimeoutSeconds,
     onStepComplete,
-    onError,
     onAllStepsComplete,
-    isMuted,
+    onError,
   ]);
 
-  // MediaPipe FaceLandmarker Detection Loop (ตรวจจับใบหน้าและมุม Yaw แบบ Real-time)
+  // MediaPipe FaceLandmarker Detection Loop
   useEffect(() => {
     if (status !== "scanning" || isSimulatedMode) return undefined;
 
@@ -315,13 +369,11 @@ export function useFaceLivenessScanner({
         if (result.faceDetected && result.landmarks) {
           latestLandmarksRef.current = result.landmarks;
 
-          // ตรวจสอบกรณีมีมากกว่า 1 ใบหน้าในเฟรม
           if (result.facesCount > 1) {
             triggerSpecificError("multiple_faces");
             return;
           }
 
-          // อัปเดตเมตริกคุณภาพใบหน้าแบบเรียลไทม์
           setQualityMetrics((prev) => ({
             ...prev,
             facesDetected: result.facesCount,
@@ -332,12 +384,10 @@ export function useFaceLivenessScanner({
             isAcceptable: result.faceSizeRatio >= 0.18 && result.faceSizeRatio <= 0.75,
           }));
 
-          // ตรวจสอบความสอดคล้องของมุม Yaw ตามท่าปัจจุบัน
           const compliance = checkPoseYawCompliance(currentPose, result.yaw);
 
           if (compliance.isCompliant) {
             compliantFramesCountRef.current += 1;
-            // เมื่อรักษาท่าทางได้ถูกต้องต่อเนื่อง 4 รอบ (~600ms) ให้ผ่านขั้นตอนนี้โดยอัตโนมัติ
             if (compliantFramesCountRef.current >= 4) {
               compliantFramesCountRef.current = 0;
               completeCurrentStep();
@@ -360,7 +410,7 @@ export function useFaceLivenessScanner({
     };
   }, [status, isSimulatedMode, currentPose, triggerSpecificError, completeCurrentStep]);
 
-  // เสียงพูดนำทางตามแต่ละขั้นตอน
+  // เสียงนำทาง Web Speech API
   useEffect(() => {
     if (status === "scanning" && !isMuted) {
       const voiceText = getStepVoicePrompt(stepNumber, currentPose);
@@ -368,7 +418,7 @@ export function useFaceLivenessScanner({
     }
   }, [currentStepIndex, status, isMuted, stepNumber, currentPose]);
 
-  // นับเวลาถอยหลัง 15 วินาทีในแต่ละขั้นตอน
+  // นับถอยหลังในแต่ละขั้นตอน
   useEffect(() => {
     if (status !== "scanning") return undefined;
 
@@ -380,7 +430,7 @@ export function useFaceLivenessScanner({
           setErrorInfo(timeoutErr);
           setStatus("error");
           onError?.(timeoutErr);
-          speakThai("หมดเวลาในการสแกน กรุณากดปุ่มลองใหม่อีกครั้งครับ", !isMuted);
+          speakThai("หมดเวลาในการทำขั้นตอน กรุณากดปุ่มลองใหม่อีกครั้งนะคะ", !isMuted);
           return 0;
         }
         return prev - 1;
@@ -390,52 +440,49 @@ export function useFaceLivenessScanner({
     return () => clearInterval(timer);
   }, [currentStepIndex, status, onError, isMuted]);
 
-  // เริ่มกล้องอัตโนมัติเมื่อ Mount (ใช้ setTimeout 0 เพื่อไม่ให้เกิด cascading synchronous setState ใน render effect)
+  // จัดการ Lifecycle และป้องกัน React Strict Mode unmount/remount
   useEffect(() => {
-    let isCancelled = false;
+    isMountedRef.current = true;
+    let timer: NodeJS.Timeout | null = null;
+
     if (!isSimulatedMode) {
-      const timer = setTimeout(() => {
-        if (!isCancelled) {
+      timer = setTimeout(() => {
+        if (isMountedRef.current) {
           void startCamera(facingMode);
         }
-      }, 0);
-
-      return () => {
-        isCancelled = true;
-        clearTimeout(timer);
-        stopActiveStream();
-      };
+      }, 50);
     }
+
     return () => {
-      isCancelled = true;
+      isMountedRef.current = false;
+      if (timer) clearTimeout(timer);
       stopActiveStream();
     };
   }, [facingMode, isSimulatedMode, startCamera, stopActiveStream]);
 
   return {
-    // State
     status,
     challenge,
     currentStepIndex,
     stepNumber,
     totalSteps: 3 as const,
     currentPose,
-    stepSecondsLeft,
     qualityMetrics,
+    stepSecondsLeft,
+    isMuted,
     errorInfo,
     isSimulatedMode,
-    isMuted,
     facingMode,
     videoRef,
-
-    // Actions
+    isModelReady,
+    isModelLoading,
+    setIsSimulatedMode,
     startCamera,
     stopActiveStream,
     toggleFacingMode,
     toggleSpeech,
     restartScan,
     completeCurrentStep,
-    setIsSimulatedMode,
     triggerSpecificError,
     setQualityMetrics,
   };

@@ -88,7 +88,29 @@ export default function KioskPage() {
   const isOnline = useSyncExternalStore(subscribeOnline, getOnlineSnapshot, getOnlineServerSnapshot);
   const clockTimestamp = useSyncExternalStore(subscribeClock, getClockSnapshot, getClockServerSnapshot);
 
-  const [state, setState] = useState<KioskFlowState>("home");
+  const [state, setState] = useState<KioskFlowState>(() => {
+    if (typeof window !== "undefined") {
+      const search = window.location.search;
+      if (search) {
+        const params = new URLSearchParams(search);
+        const flow = params.get("flow");
+        const scan = params.get("scan");
+        if (
+          flow === "scan" ||
+          flow === "login_scan" ||
+          flow === "face_scan" ||
+          scan === "true" ||
+          scan === "1"
+        ) {
+          return "login_face_scan";
+        }
+        if (flow === "register" || flow === "register_scan") {
+          return "register_face_scan";
+        }
+      }
+    }
+    return "home";
+  });
 
   // Registration Form State
   const [regFirstName, setRegFirstName] = useState("สมพร");
@@ -137,6 +159,8 @@ export default function KioskPage() {
     else if (nextState === "patient_home") setCountdown(45); // 45s idle logout on patient dashboard
     else setCountdown(0);
   };
+
+
 
   // Countdown timer for auto-advance / auto-logout
   useEffect(() => {

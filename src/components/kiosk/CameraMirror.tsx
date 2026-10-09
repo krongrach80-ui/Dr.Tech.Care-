@@ -78,6 +78,8 @@ export function CameraMirror({
     isMuted,
     facingMode,
     videoRef,
+    isModelReady,
+    isModelLoading,
     startCamera,
     toggleFacingMode,
     toggleSpeech,
@@ -85,7 +87,6 @@ export function CameraMirror({
     completeCurrentStep,
     setIsSimulatedMode,
     triggerSpecificError,
-    setQualityMetrics,
   } = useFaceLivenessScanner({
     challenge: propChallenge,
     speechEnabled,
@@ -106,31 +107,24 @@ export function CameraMirror({
     },
   });
 
-  // ใช้ step และ pose จาก hook หรือ prop ที่ส่งเข้ามา
   const activeStepNumber: 1 | 2 | 3 = currentStep ?? hookStepNumber;
   const activePose: LivenessPose = hookChallenge.sequence[activeStepNumber - 1] ?? "center";
   const currentYaw = activePose === "center" ? 0 : activePose === "left" ? -28 : 28;
 
   const displayTitle = scanTitle ?? getStepInstruction(activePose);
 
-  // ควบคุมการจำลองระดับแสง
   const handleToggleLight = () => {
     if (qualityMetrics.lightingScore < 40) {
-      setQualityMetrics((prev) => ({ ...prev, lightingScore: 85 }));
       triggerSpecificError("none");
     } else {
-      setQualityMetrics((prev) => ({ ...prev, lightingScore: 20 }));
       triggerSpecificError("low_light");
     }
   };
 
-  // ควบคุมการจำลองตรวจพบหลายใบหน้า
   const handleToggleMultiFaces = () => {
     if (qualityMetrics.facesDetected > 1) {
-      setQualityMetrics((prev) => ({ ...prev, facesDetected: 1 }));
       triggerSpecificError("none");
     } else {
-      setQualityMetrics((prev) => ({ ...prev, facesDetected: 2 }));
       triggerSpecificError("multiple_faces");
     }
   };
@@ -142,7 +136,7 @@ export function CameraMirror({
     <div
       className={`relative overflow-hidden rounded-3xl bg-slate-900 border-4 border-[#1E8A4C]/35 shadow-2xl flex flex-col items-center justify-center select-none ${className}`}
     >
-      {/* 1. วิดีโอกล้องจริง หรือ หน้าจำลอง */}
+      {/* 1. วิดีโอกล้องสดจาก WebRTC */}
       {!isSimulatedMode && status !== "error" ? (
         <video
           ref={videoRef}
@@ -154,7 +148,7 @@ export function CameraMirror({
           }`}
         />
       ) : isSimulatedMode && status !== "error" ? (
-        /* โหมดจำลองภาพ Kiosk */
+        /* โหมดจำลองในตู้ Kiosk */
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 via-emerald-950/40 to-slate-950 p-6 text-center z-10 animate-in fade-in duration-300">
           <div className="relative w-44 h-56 border-4 border-dashed border-[#6FD67F]/60 rounded-[110px] flex flex-col items-center justify-center bg-emerald-950/25 animate-pulse mb-2">
             <div className="w-14 h-14 rounded-full bg-[#1E8A4C]/30 flex items-center justify-center mb-2">
@@ -178,7 +172,7 @@ export function CameraMirror({
               className="px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-1.5 transition-all border border-white/20 cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>ลองต่อกล้องจริง</span>
+              <span>เปิดกล้องจริง</span>
             </button>
 
             <button
@@ -187,17 +181,24 @@ export function CameraMirror({
               className="px-4 py-1.5 rounded-full bg-[#1E8A4C] hover:bg-[#17733E] text-white text-xs font-extrabold flex items-center gap-1.5 transition-all shadow cursor-pointer"
             >
               <CheckCircle2 className="w-3.5 h-3.5 text-[#6FD67F]" />
-              <span>จำลองผ่านขั้นนี้</span>
+              <span>ผ่านขั้นตอนนี้</span>
             </button>
           </div>
         </div>
       ) : null}
 
-      {/* 2. แถบควบคุมด้านบน: สลับกล้อง, ปุ่มเสียง TTS, และระดับแสง */}
+      {/* สถานะโหลด AI Model ในพื้นหลัง (กล้องขึ้นแล้ว กำลังเตรียม AI) */}
+      {isModelLoading && !isModelReady && status !== "error" && !isSimulatedMode && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-slate-900/85 text-emerald-300 border border-emerald-500/40 text-xs font-semibold backdrop-blur-md flex items-center gap-2 z-20 shadow-lg animate-pulse">
+          <div className="w-2.5 h-2.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+          <span>กำลังเตรียมระบบ AI...</span>
+        </div>
+      )}
+
+      {/* 2. แถบควบคุมด้านบน: สลับกล้อง, ปุ่มเสียง TTS, และเวลานับถอยหลัง */}
       {status !== "error" && (
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-auto z-20">
           <div className="flex items-center gap-1.5">
-            {/* ปุ่มเปิด-ปิดเสียงบรรยายภาษาไทย (Web Speech API) */}
             <button
               type="button"
               onClick={handleSpeechToggle}
@@ -206,7 +207,7 @@ export function CameraMirror({
                   ? "bg-[#1E8A4C] text-white border border-[#6FD67F]"
                   : "bg-black/60 text-slate-300 border border-white/20"
               }`}
-              title={!isActuallyMuted ? "ปิดเสียงอ่านภาษาไทย" : "เปิดเสียงอ่านภาษาไทย"}
+              title={!isActuallyMuted ? "ปิดเสียงพูดนำทาง" : "เปิดเสียงพูดนำทาง"}
             >
               {!isActuallyMuted ? (
                 <Volume2 className="w-3.5 h-3.5 text-[#6FD67F]" />
@@ -216,7 +217,6 @@ export function CameraMirror({
               <span>{!isActuallyMuted ? "เสียง: เปิด" : "เสียง: ปิด"}</span>
             </button>
 
-            {/* ปุ่มตรวจสอบระดับแสงสว่าง */}
             <button
               type="button"
               onClick={handleToggleLight}
@@ -228,24 +228,22 @@ export function CameraMirror({
             >
               <SunMedium className="w-3.5 h-3.5" />
               <span>
-                {qualityMetrics.lightingScore < 40 ? "แสงน้อย" : "แสงปกติ"}
+                {qualityMetrics.lightingScore < 40 ? "แสงน้อย" : "แสงพอดี"}
               </span>
             </button>
           </div>
 
           <div className="flex items-center gap-1.5">
-            {/* นับเวลาถอยหลัง 15 วินาที */}
             <div className="px-2 py-1 rounded-full text-[11px] font-mono font-bold bg-black/60 text-emerald-300 border border-white/20 backdrop-blur-md flex items-center gap-1">
               <Clock className="w-3 h-3 text-[#6FD67F]" />
               <span>{stepSecondsLeft}s</span>
             </div>
 
-            {/* ปุ่มสลับกล้องหน้า/กล้องหลัง */}
             <button
               type="button"
               onClick={toggleFacingMode}
               className="px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 shadow bg-black/60 hover:bg-black/80 text-white border border-white/20 backdrop-blur-md transition-all cursor-pointer"
-              title="สลับกล้องหน้า/กล้องหลัง"
+              title="สลับกล้องหน้า/หลัง"
             >
               <SwitchCamera className="w-3.5 h-3.5 text-[#6FD67F]" />
               <span>{facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}</span>
@@ -254,7 +252,7 @@ export function CameraMirror({
         </div>
       )}
 
-      {/* 3. กรอบนำทางรูปไข่ (Oval guidance frame) พร้อมข้อความแนะนำแบบเรียลไทม์ตัวใหญ่ */}
+      {/* 3. กรอบวงรีแนะนำตำแหน่งใบหน้า (Face Oval Guidance) */}
       {showOverlayGrid && status !== "error" && (
         <FaceOvalGuide
           currentStepNumber={activeStepNumber}
@@ -266,7 +264,7 @@ export function CameraMirror({
         />
       )}
 
-      {/* 4. แสดงผล Error State ครบถ้วน 10 กรณี */}
+      {/* 4. หน้าจอแสดง Error เมื่อเปิดกล้องไม่สำเร็จ */}
       {status === "error" && errorInfo && (
         <CameraErrorDisplay
           error={errorInfo}
@@ -289,14 +287,14 @@ export function CameraMirror({
         />
       )}
 
-      {/* 5. แถบเครื่องมือจำลองสถานะ Error สำหรับการทดสอบ (Demo Tools) */}
+      {/* 5. เครื่องมือจำลองสำหรับทดสอบ (Demo Tools) */}
       <div className="absolute bottom-1 right-2 z-20 pointer-events-auto opacity-20 hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px] text-white">
         <button
           type="button"
           onClick={() => triggerSpecificError("too_fast")}
           className="px-1.5 py-0.5 rounded bg-black/60 hover:bg-black/90 cursor-pointer"
         >
-          ขยับเร็ว
+          เร็วเกิน
         </button>
         <button
           type="button"
@@ -311,13 +309,6 @@ export function CameraMirror({
           className="px-1.5 py-0.5 rounded bg-black/60 hover:bg-black/90 cursor-pointer"
         >
           มุมไม่พอ
-        </button>
-        <button
-          type="button"
-          onClick={() => triggerSpecificError("network_error")}
-          className="px-1.5 py-0.5 rounded bg-black/60 hover:bg-black/90 cursor-pointer"
-        >
-          เน็ตหลุด
         </button>
       </div>
     </div>
