@@ -159,89 +159,85 @@ export default function KioskPage() {
 
   return (
     <KioskShell idleTimeoutSeconds={60} enableIdleGuard={state !== "idle"}>
-      <div className="flex-1 flex flex-col justify-between p-8 text-[#1F3A4D] h-full relative">
-        {/* TOP STATUS BAR (Visible across all active screens) */}
-        <header
-          className={`w-full flex items-center justify-between border-b-2 border-[#1F3A4D]/10 pb-4 transition-all duration-700 ${
-            state === "idle" ? "opacity-40" : "opacity-100"
-          }`}
-        >
-          {/* Logo & Hospital Header */}
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-[#2FB39A] flex items-center justify-center shadow-md">
-              <Activity className="w-10 h-10 text-[#1F3A4D] stroke-[2.5]" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-extrabold tracking-tight text-[#1F3A4D] leading-tight">
-                {thMessages.app.name}
-              </h1>
-              <p className="text-base font-semibold text-[#536E80]">
-                ศูนย์กายภาพบำบัดอัจฉริยะ (Smart Kiosk)
-              </p>
-            </div>
-          </div>
-
-          {/* Clock & Realtime Badge */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-full text-sm font-bold shadow-sm">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Real-time Sync</span>
+      <div className="flex-1 flex flex-col justify-between p-4 sm:p-6 text-[#1F3A4D] w-full min-h-full relative pb-16">
+        {/* TOP STATUS BAR (Hidden in Idle state, visible in active screens) */}
+        {state !== "idle" && (
+          <header className="w-full flex items-center justify-between border-b border-[#1F3A4D]/15 pb-2.5 mb-2 animate-in fade-in duration-300">
+            {/* Logo & Clinic Name */}
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-xl bg-[#2FB39A] flex items-center justify-center shadow-sm">
+                <Activity className="w-6 h-6 text-[#1F3A4D] stroke-[2.5]" />
+              </div>
+              <div>
+                <h1 className="text-xl font-extrabold tracking-tight text-[#1F3A4D] leading-none">
+                  {thMessages.app.name}
+                </h1>
+                <p className="text-xs font-semibold text-[#536E80] mt-0.5">
+                  ตู้กายภาพบำบัดอัจฉริยะ
+                </p>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-white/80 px-4 py-1.5 rounded-full border border-[#1F3A4D]/10 text-base font-semibold">
-              {isOnline ? (
-                <>
-                  <Wifi className="w-5 h-5 text-[#1E8C78]" />
-                  <span className="text-[#1E8C78]">ออนไลน์</span>
-                </>
-              ) : (
-                <>
-                  <WifiOff className="w-5 h-5 text-[#C0392B]" />
-                  <span className="text-[#C0392B]">ออฟไลน์</span>
-                </>
-              )}
-            </div>
+            {/* Clock & Realtime Status */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Realtime</span>
+              </div>
 
-            <div className="text-xl font-bold text-[#1F3A4D]">
-              {clockTimestamp > 0 && formatThaiDate(clockTimestamp, { formatStyle: "short", includeTime: true })}
+              <div className="text-sm font-bold text-[#1F3A4D] bg-white/70 px-2.5 py-1 rounded-xl border border-slate-200">
+                {clockTimestamp > 0 && formatThaiDate(clockTimestamp, { formatStyle: "short", includeTime: true })}
+              </div>
             </div>
-          </div>
-        </header>
+          </header>
+        )}
 
         {/* ------------------------------------------------------------- */}
         {/* 1. หน้าจอพักเครื่อง (IDLE STATE)                               */}
         {/* ------------------------------------------------------------- */}
         {state === "idle" && (
-          <main className="flex-1 flex flex-col items-center justify-center my-auto text-center gap-10 animate-in fade-in duration-700">
+          <main
+            role="button"
+            tabIndex={0}
+            onClick={() => transitionTo("check_account")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") transitionTo("check_account");
+            }}
+            className="flex-1 flex flex-col items-center justify-center my-auto text-center gap-4 sm:gap-6 cursor-pointer select-none animate-in fade-in duration-700 w-full px-2"
+          >
             {/* Center Logo with Gentle Pulsing Aura */}
-            <div className="relative flex items-center justify-center">
-              <div className="absolute w-72 h-72 rounded-full bg-[#2FB39A]/20 animate-ping opacity-50" />
-              <div className="relative w-64 h-64 rounded-[48px] bg-gradient-to-tr from-[#2FB39A] to-[#3F7FD0] flex flex-col items-center justify-center shadow-2xl p-6 text-white border-4 border-white">
-                <Activity className="w-32 h-32 text-white stroke-[2.5]" />
-                <span className="text-3xl font-black mt-2 tracking-wider">Dr.Tech.Care</span>
+            <div className="relative flex items-center justify-center group active:scale-95 transition-transform my-2">
+              <div className="absolute w-44 h-44 sm:w-52 sm:h-52 rounded-full bg-[#2FB39A]/20 animate-ping opacity-50" />
+              <div className="relative w-36 h-36 sm:w-44 sm:h-44 rounded-[32px] bg-gradient-to-tr from-[#2FB39A] to-[#3F7FD0] flex flex-col items-center justify-center shadow-2xl p-4 text-white border-4 border-white group-hover:scale-105 transition-transform">
+                <Activity className="w-16 h-16 sm:w-20 sm:h-20 text-white stroke-[2.5]" />
+                <span className="text-xl sm:text-2xl font-black mt-1 tracking-wider">Dr.Tech.Care</span>
               </div>
             </div>
 
-            <div className="max-w-xl flex flex-col gap-3">
-              <h2 className="text-5xl font-black text-[#1F3A4D]">
+            <div className="max-w-md flex flex-col gap-1.5">
+              <h2 className="text-2xl sm:text-3xl font-black text-[#1F3A4D] leading-tight">
                 ระบบกายภาพบำบัดฟื้นฟูอัจฉริยะ
               </h2>
-              <p className="text-2xl text-[#536E80] font-medium leading-relaxed">
+              <p className="text-base sm:text-lg text-[#536E80] font-medium leading-relaxed">
                 กล้องสแตนด์บายตรวจจับอัตโนมัติ<br />
                 เมื่อคนไข้มานั่งที่เก้าอี้ ระบบจะเริ่มทำงานทันที
               </p>
             </div>
 
             {/* Standby Detection Button */}
-            <div className="w-full max-w-lg mt-6">
+            <div className="w-full max-w-sm mt-1">
               <BigButton
                 variant="primary-green"
-                icon={<CameraMirror className="w-10 h-10 hidden" />}
+                className="!min-h-[64px] sm:!min-h-[80px] !text-xl sm:!text-2xl !py-3.5 !rounded-2xl shadow-xl"
                 onClick={() => transitionTo("check_account")}
               >
-                ผู้ป่วยมานั่งหน้าตู้ (เริ่มใช้งาน)
+                แตะหน้าจอ / คนไข้มานั่ง (เริ่มใช้งาน)
               </BigButton>
             </div>
+
+            <p className="text-xs sm:text-sm font-bold text-teal-700 animate-pulse">
+              👉 แตะหรือคลิกที่ใดก็ได้บนหน้าจอเพื่อเริ่มต้น
+            </p>
           </main>
         )}
 
@@ -249,9 +245,9 @@ export default function KioskPage() {
         {/* 2. หน้าจอตรวจสอบบัญชี (CHECK ACCOUNT)                          */}
         {/* ------------------------------------------------------------- */}
         {state === "check_account" && (
-          <main className="flex-1 flex flex-col items-center justify-between py-6 max-w-4xl mx-auto w-full animate-in zoom-in-95 duration-500">
+          <main className="flex-1 flex flex-col items-center justify-between py-1 max-w-4xl mx-auto w-full animate-in zoom-in-95 duration-500">
             {/* Live Mirror Camera at the top (Mirror effect like a looking glass) */}
-            <div className="w-full max-w-md h-72 mb-4">
+            <div className="w-full max-w-xs h-28 sm:h-32 mb-1 flex-shrink-0">
               <CameraMirror
                 scanTitle="ส่องกระจกจัดตำแหน่งใบหน้า"
                 className="w-full h-full"
@@ -259,31 +255,32 @@ export default function KioskPage() {
             </div>
 
             {/* Central Question Card */}
-            <div className="w-full bg-white/95 rounded-[40px] p-8 border-3 border-[#1F3A4D]/10 shadow-2xl flex flex-col items-center text-center gap-6">
-              <div className="w-20 h-20 rounded-full bg-[#E4F0FC] text-[#3F7FD0] flex items-center justify-center">
-                <HelpCircle className="w-12 h-12 stroke-[2.5]" />
+            <div className="w-full bg-white/95 rounded-3xl p-4 sm:p-6 border-2 border-[#1F3A4D]/10 shadow-xl flex flex-col items-center text-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-[#E4F0FC] text-[#3F7FD0] flex items-center justify-center">
+                <HelpCircle className="w-7 h-7 stroke-[2.5]" />
               </div>
 
               <div>
-                <h2 className="text-4xl font-black text-[#1F3A4D] leading-tight">
+                <h2 className="text-xl sm:text-2xl font-black text-[#1F3A4D] leading-tight">
                   คุณมีบัญชีกายภาพอยู่แล้วหรือไม่?
                 </h2>
-                <p className="text-xl text-[#536E80] mt-2">
+                <p className="text-sm text-[#536E80] mt-0.5">
                   ควบคุมไร้สัมผัส: กวาดมือไปทางซ้ายหรือขวา หรือแตะปุ่มเพื่อเลือก
                 </p>
               </div>
 
               {/* Dual Selection (Contactless + Touch) */}
-              <div className="grid grid-cols-2 gap-8 w-full mt-2">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 w-full mt-1">
                 {/* LEFT: ไม่มีบัญชี (Flow A: ผู้ป่วยใหม่) */}
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-center gap-2 text-sm font-bold text-[#3F7FD0] bg-blue-50 py-2 rounded-xl border border-blue-200">
-                    <Hand className="w-5 h-5 -rotate-45" />
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-[#3F7FD0] bg-blue-50 py-1 rounded-lg border border-blue-200">
+                    <Hand className="w-4 h-4 -rotate-45" />
                     <span>กวาดมือซ้าย (ไร้สัมผัส)</span>
                   </div>
                   <BigButton
                     variant="primary-blue"
-                    icon={<UserPlus className="w-8 h-8" />}
+                    className="!min-h-[64px] sm:!min-h-[76px] !text-lg sm:!text-xl !py-3 !rounded-2xl"
+                    icon={<UserPlus className="w-6 h-6" />}
                     onClick={() => transitionTo("register_consent")}
                   >
                     ไม่มีบัญชี
@@ -291,14 +288,15 @@ export default function KioskPage() {
                 </div>
 
                 {/* RIGHT: มีบัญชี (Flow B: ผู้ป่วยเก่า) */}
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-center gap-2 text-sm font-bold text-[#1E8C78] bg-teal-50 py-2 rounded-xl border border-teal-200">
-                    <Hand className="w-5 h-5 rotate-45" />
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-[#1E8C78] bg-teal-50 py-1 rounded-lg border border-teal-200">
+                    <Hand className="w-4 h-4 rotate-45" />
                     <span>กวาดมือขวา (ไร้สัมผัส)</span>
                   </div>
                   <BigButton
                     variant="primary-green"
-                    icon={<UserCheck className="w-8 h-8" />}
+                    className="!min-h-[64px] sm:!min-h-[76px] !text-lg sm:!text-xl !py-3 !rounded-2xl"
+                    icon={<UserCheck className="w-6 h-6" />}
                     onClick={() => transitionTo("login_face_scan")}
                   >
                     มีบัญชีแล้ว
@@ -307,11 +305,11 @@ export default function KioskPage() {
               </div>
             </div>
 
-            <div className="w-full flex justify-center mt-4">
+            <div className="w-full flex justify-center mt-2">
               <button
                 type="button"
                 onClick={handleFullReset}
-                className="text-lg font-bold text-[#536E80] hover:text-[#1F3A4D] underline py-2 cursor-pointer"
+                className="text-sm font-bold text-[#536E80] hover:text-[#1F3A4D] underline py-1 cursor-pointer"
               >
                 กลับสู่หน้าพักเครื่อง (Reset)
               </button>

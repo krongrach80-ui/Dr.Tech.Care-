@@ -68,18 +68,17 @@ export function KioskShell({
       onContextMenu={(e) => e.preventDefault()}
       className="w-full h-full min-h-screen bg-slate-900 flex items-center justify-center overflow-hidden select-none"
     >
-      {/* 9:16 Kiosk Frame (1080x1920 Native Resolution Container) */}
+      {/* 9:16 Kiosk Frame (Scales to viewport height on desktop, 1080x1920 on vertical Kiosk) */}
       <div
         className={`
-          relative w-full h-full
-          max-w-[1080px] max-h-[1920px] aspect-[9/16]
+          relative h-[94vh] max-h-[1920px] w-auto aspect-[9/16] max-w-[100vw]
           bg-[linear-gradient(180deg,#E8F8F1_0%,#FFFFFF_50%,#E4F0FC_100%)]
-          shadow-2xl overflow-hidden flex flex-col justify-between
+          shadow-2xl overflow-hidden flex flex-col justify-between rounded-[32px] border-4 border-slate-700/60
           ${className}
         `}
       >
         {/* Main Content Area */}
-        <div className="flex-1 w-full h-full overflow-hidden flex flex-col relative">
+        <div className="flex-1 w-full min-h-0 overflow-y-auto overflow-x-hidden flex flex-col relative">
           {children}
         </div>
 
