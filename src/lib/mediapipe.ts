@@ -35,21 +35,46 @@ export async function initializeFaceLandmarker(): Promise<FaceLandmarker | null>
 
   try {
     const { FilesetResolver, FaceLandmarker } = await import("@mediapipe/tasks-vision");
-    const vision = await FilesetResolver.forVisionTasks(
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-    );
+    
+    // โหลด WASM จาก local /wasm ก่อน ไม่พึ่งพา CDN ตอนรันจริง
+    const wasmPath = typeof window !== "undefined" ? `${window.location.origin}/wasm` : "/wasm";
+    const localModelPath = typeof window !== "undefined" ? `${window.location.origin}/models/face_landmarker.task` : "/models/face_landmarker.task";
 
-    landmarkerInstance = await FaceLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath:
-          "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-        delegate: "GPU",
-      },
-      runningMode: "VIDEO",
-      numFaces: 2,
-      outputFaceBlendshapes: false,
-      outputFacialTransformationMatrixes: false,
-    });
+    let vision: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>;
+    try {
+      vision = await FilesetResolver.forVisionTasks(wasmPath);
+    } catch (wasmErr) {
+      console.warn("Local WASM load fallback to CDN:", wasmErr);
+      vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+      );
+    }
+
+    // ลองสร้างด้วย GPU delegate ก่อน หากฮาร์ดแวร์ Kiosk ไม่รองรับ ให้ Fallback เป็น CPU ทันที
+    try {
+      landmarkerInstance = await FaceLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: localModelPath,
+          delegate: "GPU",
+        },
+        runningMode: "VIDEO",
+        numFaces: 2,
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false,
+      });
+    } catch (gpuErr) {
+      console.warn("MediaPipe GPU delegate not supported, falling back to CPU:", gpuErr);
+      landmarkerInstance = await FaceLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: localModelPath,
+          delegate: "CPU",
+        },
+        runningMode: "VIDEO",
+        numFaces: 2,
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false,
+      });
+    }
 
     return landmarkerInstance;
   } catch (err) {
