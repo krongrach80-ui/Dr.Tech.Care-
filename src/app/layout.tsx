@@ -25,6 +25,8 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
+
 export default function RootLayout({
   children,
 }: {
@@ -32,7 +34,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="th" className={`${notoSansThai.variable} h-full antialiased`}>
-      <body className="h-full w-full overflow-hidden flex flex-col">{children}</body>
+      <body className="h-full w-full overflow-hidden flex flex-col">
+        <ServiceWorkerRegister />
+        {children}
+      </body>
     </html>
   );
 }

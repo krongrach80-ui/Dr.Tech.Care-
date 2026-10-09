@@ -26,6 +26,61 @@ const nextConfig: NextConfig = {
     "localhost",
     "127.0.0.1",
   ],
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'" +
+                (process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""),
+              "worker-src 'self' blob:",
+              "media-src 'self' blob: mediastream:",
+              "connect-src 'self' blob: ws: wss:",
+              "img-src 'self' blob: data:",
+              "style-src 'self' 'unsafe-inline'",
+              "font-src 'self' data:",
+              "object-src 'none'",
+              "base-uri 'self'",
+            ].join("; "),
+          },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self), microphone=(), geolocation=()",
+          },
+        ],
+      },
+      {
+        source: "/models/:path*.wasm",
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/wasm",
+          },
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        source: "/wasm/:path*.wasm",
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/wasm",
+          },
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

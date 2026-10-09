@@ -1,0 +1,4 @@
+# Git LFS configuration for Dr.Tech.Care models and large binary assets
+public/models/**/*.task filter=lfs diff=lfs merge=lfs -text
+public/models/**/*.wasm filter=lfs diff=lfs merge=lfs -text
+public/models/**/*.bin filter=lfs diff=lfs merge=lfs -text

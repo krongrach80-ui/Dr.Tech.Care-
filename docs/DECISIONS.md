@@ -73,3 +73,31 @@
     - Next.js 16 ยังคงรองรับ `middleware.ts` / server wrapper `guard()` ใน Route Handlers และ Server Components
     - จะใช้ `guard()` แบบฟังก์ชันมาตรฐานใน `src/lib/guard.ts` สำหรับ Route Handlers และ Server Actions ทุกตัว เพื่อความแน่นอนและไม่ขึ้นกับความเปลี่ยนแปลงของชื่อ middleware ของเฟรมเวิร์ก
 - **ผลลัพธ์**: พัฒนาได้รวดเร็วด้วย Turbopack และปลอดภัย 100% ตามกฎ 3 ชั้น
+
+---
+
+### ADR-006: การติดตั้งและล็อกเวอร์ชัน @mediapipe/tasks-vision และ @vladmandic/face-api
+- **วันที่**: 2026-10-10 (Milestone 1)
+- **สถานะ**: อนุมัติแล้ว (Accepted)
+- **แพ็กเกจและเวอร์ชัน**:
+  - `@mediapipe/tasks-vision`: `1.1.0` (ล็อก exact version ไม่ใช้ `^` หรือ `latest`)
+  - `@vladmandic/face-api`: `1.7.15` (ล็อก exact version ไม่ใช้ `^` หรือ `latest`)
+- **บริบทและเหตุผล**:
+  - ตู้ Kiosk ต้องการการตรวจจับใบหน้าและท่าทางกายภาพแบบ Real-time บนเบราว์เซอร์ (Client-side) ที่แม่นยำสูง
+  - `@mediapipe/tasks-vision` มอบ FaceLandmarker (478 จุด) และ PoseLandmarker (33 จุด) ที่มีความเร็วและรองรับ WebGL GPU Acceleration
+  - `@vladmandic/face-api` เป็นพอร์ตที่มีการดูแลต่อเนื่องและรองรับ TensorFlow.js สำหรับสกัด Face Descriptor / Embedding 128 มิติ (128-d Float32 vector) เพื่อใช้เปรียบเทียบใบหน้าโดยไม่บันทึกภาพถ่ายตามกฎหมาย PDPA
+  - การล็อกเวอร์ชันแน่นอนป้องกันปัญหาความไม่เข้ากันของ WebAssembly runtime หรือ weight format เมื่อ build บนเครื่อง kiosk ที่ต่างกัน
+- **ผลลัพธ์**: Dependency ล็อกตายตัว ทำงานซ้ำได้แน่นอน (Reproducible Build)
+
+---
+
+### ADR-007: การจัดการไฟล์โมเดลขนาดใหญ่และกลยุทธ์ Local-first Caching
+- **วันที่**: 2026-10-10 (Milestone 1)
+- **สถานะ**: อนุมัติแล้ว (Accepted)
+- **บริบท**: ไฟล์โมเดล Task และ Weights มีขนาดใหญ่ (`face_landmarker.task` ~3.8MB, `pose_landmarker_full.task` ~9.0MB, `*.wasm` ~13MB, `*.bin` ~6.4MB) และระบบ Kiosk ต้องรันแบบ Offline ได้ 100% โดยไม่พึ่ง CDN
+- **การตัดสินใจ**:
+  - สร้างสคริปต์ `scripts/setup-models.mjs` รันผ่าน `pnpm setup:models` สำหรับคัดลอกไฟล์ WASM และ Weights จาก `node_modules` ไปไว้ใน `public/models/`
+  - ตรวจสอบความถูกต้องของโมเดลทั้งหมด พร้อมสร้าง `public/models/manifest.json` ระบุ SHA-256 hash ของทุกไฟล์
+  - ใช้งาน Service Worker ในการแคชไฟล์โมเดลทั้งหมดตาม `manifest.json` เพื่อให้โหลดทันทีจาก Cache Storage และล้างแคชเก่าเมื่อ SHA-256 เปลี่ยน
+  - เพิ่มการตั้งค่า `.gitattributes` สำหรับไฟล์ขนาดใหญ่ (Git LFS) เพื่อป้องกันประวัติ git บวม
+- **ผลลัพธ์**: ตู้ Kiosk เริ่มทำงานได้รวดเร็ว ทำงานออฟไลน์ได้สมบูรณ์ และปลอดภัยจากการเปลี่ยนแปลงบน CDN ภายนอก
