@@ -166,7 +166,7 @@ export default function KioskPage() {
 
   return (
     <KioskShell idleTimeoutSeconds={60} enableIdleGuard={state !== "home"} showStaffTrigger={false}>
-      <div className="flex-1 flex flex-col w-full h-full bg-[#F4FBF7] text-[#0B2B2B] px-5 sm:px-8 py-4 sm:py-6 select-none overflow-y-auto">
+      <div className="flex-1 flex flex-col w-full h-full bg-transparent text-[#0B2B2B] px-5 sm:px-8 py-4 sm:py-6 select-none overflow-y-auto">
         
         {/* ========================================================================= */}
         {/* 1. หน้าแรก (HOME SCREEN) - สไตล์ STRONG CARE สำหรับผู้สูงอายุ              */}

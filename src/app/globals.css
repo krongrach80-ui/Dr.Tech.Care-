@@ -1,7 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --kiosk-bg: #F4FBF7;
+  --kiosk-bg: #FFFFFF;
+  --kiosk-aurora-gradient:
+    radial-gradient(ellipse 80% 50% at 85% 12%, rgba(134, 239, 172, 0.85) 0%, rgba(167, 243, 208, 0.4) 40%, transparent 65%),
+    radial-gradient(ellipse 90% 60% at 20% 65%, rgba(56, 189, 248, 0.85) 0%, rgba(125, 211, 252, 0.4) 40%, transparent 70%),
+    radial-gradient(ellipse 70% 45% at 10% 90%, rgba(56, 189, 248, 0.7) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 10% 10%, #FFFFFF 0%, transparent 60%);
   --color-primary: #1E8A4C;
   --color-primary-hover: #17733E;
   --color-secondary: #6FD67F;
@@ -11,6 +16,13 @@
   --color-status-success: #1E8A4C;
   --color-status-warning: #C77700;
   --color-status-error: #C0392B;
+}
+
+/* Kiosk Aurora Mesh Background Utility */
+.kiosk-aurora-bg {
+  background-color: #FFFFFF !important;
+  background-image: var(--kiosk-aurora-gradient) !important;
+  background-repeat: no-repeat !important;
 }
 
 /* Kiosk Touch & Hardening Rules */
@@ -24,7 +36,9 @@ body {
   -webkit-user-select: none;
   touch-action: manipulation;
   overscroll-behavior: none;
-  background: var(--kiosk-bg);
+  background-color: #FFFFFF !important;
+  background-image: var(--kiosk-aurora-gradient) !important;
+  background-repeat: no-repeat !important;
   color: var(--color-text-dark);
   font-size: 16px;
   line-height: 1.5;

@@ -285,7 +285,7 @@ export function PatientDashboard({
               {historyList.map((hist) => (
                 <div
                   key={hist.id}
-                  className="p-3 rounded-2xl bg-[#F4FBF7] border border-emerald-200/80 flex flex-col gap-1 text-xs"
+                  className="p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 flex flex-col gap-1 text-xs"
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-[#0B2B2B]">

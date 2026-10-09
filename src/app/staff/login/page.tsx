@@ -41,7 +41,7 @@ export default function StaffLoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F4FBF7] text-[#0B2B2B] flex items-center justify-center p-4 sm:p-6 select-none">
+    <div className="min-h-screen kiosk-aurora-bg text-[#0B2B2B] flex items-center justify-center p-4 sm:p-6 select-none">
       <div className="w-full max-w-xl bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border-2 border-[#1E8A4C]/20 flex flex-col gap-6">
         
         {/* แถบส่วนหัว */}
@@ -74,7 +74,7 @@ export default function StaffLoginPage() {
         </div>
 
         {/* แถบเลือกบทบาท: แอดมิน/ผอ. vs นักกายภาพบำบัด */}
-        <div className="grid grid-cols-2 gap-3 bg-[#F4FBF7] p-1.5 rounded-2xl border border-emerald-200/60">
+        <div className="grid grid-cols-2 gap-3 bg-emerald-50/70 p-1.5 rounded-2xl border border-emerald-200/60">
           <button
             type="button"
             onClick={handleQuickDirector}

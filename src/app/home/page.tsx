@@ -127,7 +127,7 @@ export default function PatientHomePage() {
 
   return (
     <KioskShell idleTimeoutSeconds={idleTimeoutSeconds} enableIdleGuard={false} showStaffTrigger={false}>
-      <div className="flex-1 flex flex-col w-full h-full bg-[#F4FBF7] text-[#0B2B2B] px-5 sm:px-8 py-5 select-none overflow-y-auto">
+      <div className="flex-1 flex flex-col w-full h-full bg-transparent text-[#0B2B2B] px-5 sm:px-8 py-5 select-none overflow-y-auto">
         <div className="flex-1 flex flex-col justify-between items-center w-full max-w-sm mx-auto h-full min-h-0">
           
           {/* ========================================================================= */}
@@ -415,7 +415,7 @@ export default function PatientHomePage() {
 
             <div className="flex flex-col gap-2">
               {todayPlans.map((plan: TodayTrainingPlan) => (
-                <div key={plan.id} className="p-3 rounded-xl bg-[#F4FBF7] border border-emerald-200 text-xs">
+                <div key={plan.id} className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200 text-xs">
                   <div className="flex justify-between font-bold text-[#0B2B2B]">
                     <span>{plan.time} - {plan.title}</span>
                     <span className="text-[#1E8A4C]">{plan.status === "ready" ? "พร้อมฝึก" : plan.status === "done" ? "ผ่านแล้ว" : "รอนัด"}</span>

@@ -111,7 +111,7 @@ export default function StaffOverviewPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F4FBF7] text-[#0B2B2B] flex flex-col items-center p-4 sm:p-6 select-none">
+    <div className="min-h-screen kiosk-aurora-bg text-[#0B2B2B] flex flex-col items-center p-4 sm:p-6 select-none">
       <div className="w-full max-w-5xl bg-white rounded-3xl p-6 sm:p-10 shadow-2xl border-2 border-[#1E8A4C]/20 flex flex-col gap-6">
         
         {/* แถบส่วนหัวด้านบน */}
@@ -209,7 +209,7 @@ export default function StaffOverviewPage() {
                 className="p-4 rounded-2xl bg-white border-2 border-slate-200 hover:border-[#1E8A4C] hover:shadow-md transition-all flex items-center justify-between cursor-pointer group text-left"
               >
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-[#F4FBF7] border border-emerald-100 group-hover:bg-emerald-50 transition-colors">
+                  <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-100 group-hover:bg-emerald-100/70 transition-colors">
                     {menuIcons[menuKey]}
                   </div>
                   <div>
