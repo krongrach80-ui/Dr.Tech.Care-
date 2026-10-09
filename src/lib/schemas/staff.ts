@@ -5,12 +5,12 @@ export const staffRoleSchema = z.enum(["director", "physio"]);
 export const staffLoginSchema = z.object({
   username: z
     .string()
-    .min(4, "ชื่อผู้ใช้ต้องมีอย่างน้อย 4 ตัวอักษร")
-    .max(32, "ชื่อผู้ใช้ต้องมีความยาวไม่เกิน 32 ตัวอักษร")
-    .regex(/^[a-z0-9._-]+$/, "ชื่อผู้ใช้ต้องประกอบด้วยตัวพิมพ์เล็ก ตัวเลข จุด หรือขีดเท่านั้น"),
+    .min(4, "ชื่อผู้ใช้งานต้องมีความยาวอย่างน้อย 4 ตัวอักษร")
+    .max(32, "ชื่อผู้ใช้งานต้องไม่เกิน 32 ตัวอักษร")
+    .regex(/^[a-z0-9._-]+$/, "ชื่อผู้ใช้งานต้องเป็นตัวพิมพ์เล็ก ตัวเลข จุด หรือขีดกลางเท่านั้น"),
   password: z
     .string()
-    .min(8, "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร"),
+    .min(8, "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร"),
   role: staffRoleSchema,
 });
 
@@ -23,7 +23,7 @@ export type StaffLoginInput = z.infer<typeof staffLoginSchema>;
 export type StaffSession = z.infer<typeof staffSessionSchema>;
 
 /**
- * ตรวจสอบความถูกต้องของข้อมูล Session เจ้าหน้าที่จาก Storage
+ * ตรวจสอบความถูกต้องของข้อมูล Session เจ้าหน้าที่ก่อนบันทึกหรืออ่านจาก Storage
  */
 export function parseStaffSession(roleRaw: unknown, usernameRaw: unknown): StaffSession | null {
   const result = staffSessionSchema.safeParse({
