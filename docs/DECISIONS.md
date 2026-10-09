@@ -1,0 +1,75 @@
+# เอกสารการตัดสินใจทางสถาปัตยกรรม (Architecture Decision Records - ADR)
+## โครงการ Dr.Tech.Care
+
+เอกสารนี้ใช้บันทึกการตัดสินใจทางเทคนิคและสถาปัตยกรรมตามกฎเหล็กข้อ 6 ของ Master Prompt
+
+---
+
+### ADR-001: สถาปัตยกรรม Single Next.js App Router Application สำหรับ Kiosk 9:16
+- **วันที่**: 2026-10-10 (Milestone 0)
+- **สถานะ**: อนุมัติแล้ว (Accepted - ปรับปรุงคำอธิบายจาก Monorepo เป็น Single App)
+- **บริบท**: ระบบต้องทำงานบนตู้ Kiosk แนวตั้ง 1080×1920 สำหรับคลินิกกายภาพบำบัด มีทั้งหน้า Kiosk สำหรับผู้ป่วย/ผู้สูงอายุ และหน้า Staff/Admin สำหรับผู้อำนวยการและนักกายภาพ
+- **การตัดสินใจ**:
+  - ใช้ **Single Next.js Application** โครงสร้างเดียว (ไม่ใช่ Monorepo แยกโปรเจกต์)
+  - แบ่ง Route Groups ภายในโฟลเดอร์ `src/app/`:
+    - `src/app/(kiosk)/`: สำหรับผู้ป่วย มี Kiosk Shell ล็อก 9:16, Touch-first UX, Virtual Thai Keyboard/NumPad, IdleGuard
+    - `src/app/(staff)/`: สำหรับบุคลากร (ผู้อำนวยการ, นักกายภาพ) รองรับ Responsive ทั้งบนจอสัมผัสตู้และเดสก์ท็อป
+- **ผลลัพธ์**: รหัสประเภทฐานข้อมูล, Utility และ Business Logic แชร์กันได้ 100% ไม่มี overhead ของ multi-package monorepo
+
+---
+
+### ADR-002: การบังคับใช้ TypeScript Strict Mode 100%
+- **วันที่**: 2026-10-10 (Milestone 0)
+- **สถานะ**: อนุมัติแล้ว (Accepted)
+- **บริบท**: ข้อกำหนดบังคับใช้ `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` และห้าม `any` / `@ts-ignore` ทุกกรณี
+- **การตัดสินใจ**:
+  - ตั้งค่า `tsconfig.json` ให้เปิด `strict: true`, `noUncheckedIndexedAccess: true`, `exactOptionalPropertyTypes: true`
+  - รองรับ `exactOptionalPropertyTypes` โดยเพิ่ม `| undefined` ให้กับ optional properties ทุกตัวที่มีการส่งค่า undefined ชัดเจน
+  - ตรวจสอบชนิดข้อมูลข้าม Boundary (HTTP Request, Cookies, Supabase responses, LocalStorage) ด้วย `zod` 100%
+  - สแกนโค้ดอัตโนมัติห้ามมี `TODO`, `FIXME`, `: any`, `as any`, `@ts-ignore`
+- **ผลลัพธ์**: ความน่าเชื่อถือของรหัสสูงสุด ป้องกัน Runtime Crash บนตู้ Kiosk
+
+---
+
+### ADR-003: การออกแบบ Design Tokens และกฎ Contrast เพื่อผู้สูงอายุ
+- **วันที่**: 2026-10-10 (Milestone 0)
+- **สถานะ**: อนุมัติแล้ว (Accepted)
+- **บริบท**: ตู้ Kiosk ใช้โดยผู้ป่วยและผู้สูงอายุ ต้องการการอ่านง่าย ปุ่มขนาดใหญ่ และ Contrast ผ่านเกณฑ์ WCAG AA / AAA
+- **การตัดสินใจ**:
+  - สีพื้นหลัง: `linear-gradient(180deg, #E8F8F1 0%, #FFFFFF 50%, #E4F0FC 100%)`
+  - สีหลัก: Jade Green `#2FB39A`, Blue `#3F7FD0`, Text Dark `#1F3A4D`
+  - **กฎเหล็กเรื่อง Contrast**:
+    - ปุ่มสีเขียว `#2FB39A`: ห้ามใช้ตัวอักษรสีขาว (ได้เพียง ~2.6:1 ไม่ผ่าน) บังคับใช้ตัวอักษรสีเข้ม `#1F3A4D` ได้ ~4.5:1
+    - ปุ่มสีน้ำเงิน `#3F7FD0`: บังคับใช้ตัวอักษรสีขาวตัวหนาขนาด >= 24px ได้ ~4.1:1
+  - ขนาด Touch Target: ขั้นต่ำ 96×96px, ระยะห่างระหว่างปุ่ม >= 24px, มุมโค้ง 24px
+  - ฟอนต์พื้นฐาน >= 28px, หัวข้อ 40-56px, ปุ่ม 32px ตัวหนา
+- **ผลลัพธ์**: ใช้งานสะดวก ลดข้อผิดพลาดในการสัมผัสบนหน้าจอขนาด 27-32 นิ้ว
+
+---
+
+### ADR-004: การแยกสิทธิ์ RBAC แบบ Single Source of Truth และ Table-Driven Testing
+- **วันที่**: 2026-10-10 (Milestone 0)
+- **สถานะ**: อนุมัติแล้ว (Accepted)
+- **บริบท**: สิทธิ์ 3 ระดับ (Director, Physio, Patient) ต้องมี Permission Matrix ที่ชัดเจนและตรงกันทั้ง UI, Server Guard และ RLS
+- **การตัดสินใจ**:
+  - สร้าง `src/lib/rbac.ts` เป็นฟังก์ชันบริสุทธิ์ (Pure TypeScript)
+  - กำหนด Permissions ชัดเจนตามตารางใน Section 1.2
+  - ผู้อำนวยการ (`director`) มีสิทธิ์สูงสุด เห็น 9 เมนูแอดมิน (Overview + 8 เมนู)
+  - นักกายภาพ (`physio`) จัดการคนไข้ตาม `physio_scope` (`all` หรือ `own`), แก้ไข/ลบเฉพาะท่าและโจทย์ที่ตนสร้าง, ไม่เห็นหน้าประวัติการใช้งานและตั้งค่าระบบ (เห็น 7 เมนู)
+  - เขียน Unit Test แบบ **Table-Driven Tests** ครบทุกช่องของ Matrix (46 เทสต์เคส) ครอบคลุมทั้งกรณีอนุญาต ปฏิเสธ และกฎกันพลาด
+- **ผลลัพธ์**: ตรรกะการตรวจสอบสิทธิ์ไม่กระจัดกระจาย ตรวจสอบย้อนกลับได้ง่าย
+
+---
+
+### ADR-005: การใช้งาน Next.js 16 (16.4.0) พร้อม Turbopack และแนวทาง Route Guard ใน M2
+- **วันที่**: 2026-10-10 (Milestone 0)
+- **สถานะ**: อนุมัติแล้ว (Accepted)
+- **บริบท**: Next.js ที่ติดตั้งในสภาพแวดล้อมปัจจุบันคือ 16.4.0 พร้อม React 19.3.0 และ Turbopack
+- **การตัดสินใจ**:
+  - ใช้ Next.js 16.4.0 สำหรับทั้งฝั่ง Kiosk และ Admin
+  - บันทึก `allowedDevOrigins: ["192.168.1.101", "localhost", "127.0.0.1"]` ใน `next.config.ts` ป้องกันปัญหา HMR Cross-Origin Block
+  - สำหรับ Route Guard ใน M2:
+    - สเปกกำหนดให้ตรวจ 3 ชั้น (UI ซ่อน -> Server Guard ปฏิเสธ -> RLS ปฏิเสธ)
+    - Next.js 16 ยังคงรองรับ `middleware.ts` / server wrapper `guard()` ใน Route Handlers และ Server Components
+    - จะใช้ `guard()` แบบฟังก์ชันมาตรฐานใน `src/lib/guard.ts` สำหรับ Route Handlers และ Server Actions ทุกตัว เพื่อความแน่นอนและไม่ขึ้นกับความเปลี่ยนแปลงของชื่อ middleware ของเฟรมเวิร์ก
+- **ผลลัพธ์**: พัฒนาได้รวดเร็วด้วย Turbopack และปลอดภัย 100% ตามกฎ 3 ชั้น

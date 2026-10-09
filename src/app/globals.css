@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --kiosk-bg: linear-gradient(180deg, #E8F8F1 0%, #FFFFFF 50%, #E4F0FC 100%);
+  --color-jade: #2FB39A;
+  --color-jade-hover: #269984;
+  --color-blue: #3F7FD0;
+  --color-blue-hover: #326ab0;
+  --color-text-dark: #1F3A4D;
+  --color-text-muted: #536E80;
+  --color-status-success: #1E8C78;
+  --color-status-warning: #C77700;
+  --color-status-error: #C0392B;
+}
+
+/* Kiosk Touch & Hardening Rules */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  overscroll-behavior: none;
+  background: var(--kiosk-bg);
+  color: var(--color-text-dark);
+  font-size: 28px;
+  line-height: 1.5;
+  font-family: var(--font-noto-thai), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Disable selection, context highlight, and callouts on touchscreen */
+* {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* Custom Scrollbar for Kiosk */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(31, 58, 77, 0.2);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(31, 58, 77, 0.35);
+}
