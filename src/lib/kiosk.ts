@@ -57,10 +57,11 @@ export function resetKioskState(options: ResetKioskOptions = { redirectToHome: t
     console.warn("Failed to clear sessionStorage:", err);
   }
 
-  // 4. ล้าง draft enrollment / candidate token ในหน่วยความจำ
+  // 4. ล้าง draft enrollment / candidate token และ state machine ในหน่วยความจำ
   try {
     sessionStorage.removeItem("dtc_face_draft_id");
     sessionStorage.removeItem("dtc_candidate_token");
+    sessionStorage.removeItem("dtc_kiosk_flow_storage");
   } catch {
     // no-op
   }

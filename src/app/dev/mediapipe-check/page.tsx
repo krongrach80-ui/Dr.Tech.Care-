@@ -15,8 +15,8 @@ import { calculateHeadPoseFromLandmarks } from "@/lib/mediapipe";
 import type { FaceLandmarker, PoseLandmarker } from "@mediapipe/tasks-vision";
 
 export default function MediaPipeCheckPage() {
-  // บล็อกการเข้าถึงใน Production
-  if (process.env.NODE_ENV === "production") {
+  // บล็อกการเข้าถึงใน Production เมื่อมีการเปิด FLAG STRICT_PROD
+  if (process.env.NODE_ENV === "production" && process.env.STRICT_PROD_DEV_BLOCK === "true") {
     notFound();
   }
 

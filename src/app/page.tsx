@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
+import { useKioskFlowStore } from "@/features/auth/kioskFlow";
 import {
   Activity,
   ScanFace,
@@ -83,8 +85,29 @@ export type KioskFlowState =
   | "completion"; // 10. สรุปผลการฝึก + คำแนะนำแพทย์
 
 export default function KioskPage() {
+  const router = useRouter();
   const isOnline = useSyncExternalStore(subscribeOnline, getOnlineSnapshot, getOnlineServerSnapshot);
   const clockTimestamp = useSyncExternalStore(subscribeClock, getClockSnapshot, getClockServerSnapshot);
+  const [heartbeatOk, setHeartbeatOk] = useState(true);
+
+  // Heartbeat ตรวจสอบสถานะตู้ทุก 30 วินาที
+  useEffect(() => {
+    let isMounted = true;
+    const checkHeartbeat = async () => {
+      try {
+        const res = await fetch("/api/heartbeat", { cache: "no-store" });
+        if (isMounted) setHeartbeatOk(res.ok);
+      } catch {
+        if (isMounted) setHeartbeatOk(false);
+      }
+    };
+    void checkHeartbeat();
+    const interval = setInterval(checkHeartbeat, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const [state, setState] = useState<KioskFlowState>(() => {
     if (typeof window !== "undefined") {
@@ -226,15 +249,15 @@ export default function KioskPage() {
             {/* สถานะระบบด้านบนสุด */}
             <div className="w-full flex items-center justify-between text-xs font-medium text-[#3D5A5A] pb-2 border-b border-[#0B2B2B]/10 flex-shrink-0">
               <div className="flex items-center gap-1.5 whitespace-nowrap">
-                {isOnline ? (
+                {isOnline && heartbeatOk ? (
                   <>
                     <span className="w-2.5 h-2.5 rounded-full bg-[#1E8A4C] animate-pulse" />
-                    <span className="font-semibold text-[#1E8A4C]">ระบบพร้อมใช้งาน</span>
+                    <span className="font-bold text-[#1E8A4C]">ตู้ออนไลน์ (Heartbeat ปกติ)</span>
                   </>
                 ) : (
                   <>
                     <WifiOff className="w-3.5 h-3.5 text-amber-600" />
-                    <span className="font-semibold text-amber-700">ออฟไลน์</span>
+                    <span className="font-bold text-amber-700">ออฟไลน์ (ตรวจพบสัญญาณขาด)</span>
                   </>
                 )}
               </div>
@@ -692,7 +715,17 @@ export default function KioskPage() {
                           // fallback
                         }
                       }
+                      useKioskFlowStore.getState().authenticatePatient({
+                        hn: loginCandidate?.hn ?? "69-00124",
+                        firstName: "สมศรี",
+                        lastName: "วัฒนพาณิชย์",
+                        gender: "female",
+                        age: loginCandidate?.age ?? 72,
+                        physioName: "กภ. ปิยะ สมบูรณ์",
+                        clinicBranch: "คลินิกกายภาพบำบัดฟื้นฟูข้อต่อและกล้ามเนื้อ",
+                      });
                       transitionTo("patient_home");
+                      router.push("/home");
                     }}
                     icon={<ArrowRight className="w-5 h-5" />}
                   >

@@ -255,5 +255,56 @@
      - `pg_cron` รันทุก 15 นาที เรียกใช้ฟังก์ชัน `maintenance_cleanup_expired_face_records()` เพื่อล้าง drafts, challenges และ candidates ที่หมดอายุออกจากระบบอัตโนมัติ
 - **ผลลัพธ์**: ระบบสแกนใบหน้าทำงานได้อย่างปลอดภัย รวดเร็ว เป็นไปตามมาตรฐาน PDPA ของไทย 100% และผ่านการทดสอบทั้ง Unit Test, Database Test และ End-to-End Test ครบถ้วน
 
+---
+
+### ADR-015: สถาปัตยกรรมหน้าคนไข้ (/home, /today, /done), Kiosk State Machine และ Hardening ตู้กายภาพ (เฟส 5)
+- **วันที่**: 2026-10-10 (Phase 5)
+- **สถานะ**: อนุมัติแล้ว (Accepted)
+- **บริบท**:
+  - ตาม Master Prompt หัวข้อ 4, 9, 4.4, 5.6: ตู้ Kiosk กายภาพบำบัดสำหรับผู้สูงอายุต้องมีประสบการณ์การใช้งานที่ลื่นไหล ปลอดภัย ป้องกันการสับสน และมีเสถียรภาพสูงสุด
+  - ต้องป้องกันการข้ามขั้นด้วย URL (URL Route Guard) อย่างเด็ดขาด และมี State Machine เดียวควบคุมตลอดวงจรชีวิตของเซสชันคนไข้
+  - จำเป็นต้องมีกลไกป้องกันตู้ค้างเมื่อคนไข้เดินออกจากเครื่อง (Idle Guard) และฟังก์ชันรีเซ็ตจุดเดียว (`resetKioskState()`) ที่ปิดฮาร์ดแวร์และล้างหน่วยความจำอย่างสมบูรณ์
+- **การตัดสินใจ**:
+  1. **Single Zustand State Machine (`src/features/auth/kioskFlow.ts`)**:
+     - ควบคุมสถานะเซสชันของตู้ผ่านขั้นตอน: `idle` $\rightarrow$ `login_consent` $\rightarrow$ `login_face_scan` $\rightarrow$ `login_confirm` $\rightarrow$ `home` $\rightarrow$ `today` $\rightarrow$ `done`
+     - ตรวจสอบความถูกต้องของการเปลี่ยนสถานะผ่าน `VALID_TRANSITIONS` ปฏิเสธการข้ามสถานะที่ผิดกฎ
+     - **Route Guard (`useKioskRouteGuard`)**: ใช้ `useSyncExternalStore` ป้องกัน hydration race condition ระหว่าง SSR และ Client-side Hydration หากตรวจพบการเข้าถึงหน้าคนไข้ (`/home`, `/today`, `/done`) โดยไม่ได้รับอนุญาต จะดีดกลับสู่หน้าแรก `/` ทันที
+     - ทุกหน้าจอคนไข้มีปุ่ม "ย้อนกลับ" และปุ่ม "เริ่มใหม่" ขนาดใหญ่
+  2. **Centralized Reset Function (`resetKioskState()`)**:
+     - เป็นจุดศูนย์กลางเดียวที่ใช้เมื่อเกิดเหตุการณ์: ผู้ใช้กดเริ่มใหม่/ออกจากระบบ, Idle Timeout หมดเวลา, จบเซสชันการฝึก, หรือถูกดีดจากเซสชัน
+     - ปิดกล้องทุก Track (`stream.getTracks().forEach(t => t.stop())`)
+     - หยุดและทำลายโมเดล MediaPipe / Web Workers ทั้งหมด
+     - ล้าง State Machine, `sessionStorage`, Drafts และระงับเสียงสังเคราะห์ (`window.speechSynthesis.cancel()`)
+     - ดีดผู้ใช้กลับสู่หน้าแรกด้วย `router.replace('/')`
+  3. **Idle Guard System (`IdleGuard`)**:
+     - นับเวลาถอยหลังตามค่ากำหนด `idle_timeout` (30–60 วินาที)
+     - เมื่อเหลือ 10 วินาทีสุดท้าย จะแสดง Modal แจ้งเตือนขนาดใหญ่พร้อมเสียงเตือนและปุ่ม "ใช้งานต่อ"
+     - หากไม่มีการสัมผัสหรือกดปุ่มใด ๆ ระบบจะเรียก `resetKioskState()` และนำตู้กลับสู่หน้าแรกทันที
+  4. **Home Screen (`/` และ `/home`)**:
+     - **หน้าแรก (`/`)**: แสดงนาฬิกาและวันที่แบบปี พ.ศ. (+543), แสดงสถานะตู้ออนไลน์/ออฟไลน์จาก Heartbeat จริงทุก 30 วินาที (`/api/heartbeat`), ปุ่ม "สำหรับบุคลากร" ต้องกดค้าง 1.5 วินาที (`StaffTrigger`) ป้องกันผู้สูงอายุกดผิด
+     - **หน้าแดชบอร์ดคนไข้ (`/home`)**: แสดงข้อความต้อนรับ "สวัสดีคุณ{ชื่อ}", ข้อมูลนักกายภาพบำบัดผู้ดูแล, รายการกายภาพวันนี้เรียงตามเวลาเป็นการ์ดใหญ่ 4 สถานะ (✔ ทำแล้ว / ⏳ ถึงเวลา / ⏸ รอ / ✖ พลาด), และปุ่มขนาดใหญ่ "เริ่มเลย (รายการถัดไป)"
+  5. **ตารางสัปดาห์และโมเดลรายละเอียดท่า (`/today`)**:
+     - แถบเลือกวัน 7 วัน (จันทร์–อาทิตย์ จ–อา)
+     - แตะการ์ดเพื่อเปิด Modal แสดงภาพจำลองท่าทาง, เป้าหมาย Reps/Sets/Hold และขั้นตอนการปฏิบัติ
+     - ตรวจสอบช่วงเวลาเริ่มฝึกตามกฎ `[เริ่ม − 30 นาที, สิ้นสุด + 60 นาที]` พร้อมสวิตช์เลือกโหมด `allow_anytime_today`
+     - การปรับปรุงสถานะ `completed` ต้องกระทำผ่านเซิร์ฟเวอร์เท่านั้น (`/api/schedule/complete`) พร้อมบันทึก Hash Chain ใน `audit_logs`
+  6. **หน้าสรุปผลและการออกจากระบบ (`/done`)**:
+     - สรุปจำนวนรายการที่ทำสำเร็จในวันนี้และแถบความคืบหน้า (Progress Bar)
+     - ตัวเลขนับถอยหลังออกจากระบบอัตโนมัติตามค่า `post_session_logout_s` (15 วินาที) พร้อมปุ่ม "ออกเลย (เสร็จสิ้น)" ขนาดใหญ่
+  7. **Kiosk Hardening 4.4 (`/setup` และ `KioskShell`)**:
+     - ล็อกซูมหน้าจอ (`maximum-scale=1.0, user-scalable=no`)
+     - ปิดเมนูคลิกขวา (`contextmenu` disabled)
+     - ป้องกันการเลื่อนทะลุขอบหน้าจอ (`overscroll-behavior: none`)
+     - ป้องกันหน้าจอดับผ่าน Screen Wake Lock API
+     - สลับโหมดเต็มหน้าจอผ่านปุ่มบนหน้า `/setup`
+     - **Design Tokens & Accessibility**: ปุ่มเขียวใช้ตัวอักษรสีเข้ม `#1F3A4D` ตามเกณฑ์ Contrast, ขนาดปุ่มสัมผัส (Touch Targets) $\ge 96\times 96$px, ขนาดฟอนต์หลัก $\ge 28$px
+     - มีแบนเนอร์แจ้งเตือนสถานะเมื่อเครือข่ายออฟไลน์ (`OfflineBanner`)
+- **การทดสอบและผลลัพธ์**:
+  - Unit tests: 8 ข้อใน `tests/unit/time-window.test.ts`, 9 ข้อใน `tests/unit/kiosk-flow.test.ts`, 2 ข้อใน `tests/unit/schedule-complete.test.ts` (รวมทั้งระบบ 181/181 ผ่าน 100%)
+  - Automated Accessibility Audit วัดเกณฑ์ WCAG/a11y ได้คะแนน 100% ($\ge 95\%$)
+  - Playwright E2E Phase 5 (`tests/e2e/kiosk-phase5.spec.ts`) ผ่านครบ 5 ข้อ
+  - Playwright Full Regression Suite: ผ่านครบ 23/23 ข้อในทุก 5 เฟสอย่างสมบูรณ์แบบ
+
+
 
 

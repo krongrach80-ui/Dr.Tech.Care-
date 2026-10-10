@@ -3,6 +3,7 @@
 import React, { useEffect } from "react";
 import { StaffTrigger } from "./StaffTrigger";
 import { IdleGuard } from "./IdleGuard";
+import { OfflineBanner } from "./OfflineBanner";
 
 interface WakeLockSentinelLike {
   release: () => Promise<void>;
@@ -77,6 +78,9 @@ export function KioskShell({
           ${className}
         `}
       >
+        {/* Offline Banner */}
+        <OfflineBanner />
+
         {/* Main Content Area */}
         <div className="flex-1 w-full min-h-0 overflow-y-auto overflow-x-hidden flex flex-col relative">
           {children}
